@@ -38,7 +38,10 @@ export function useClienteAssinaturas() {
 
   useEffect(() => {
     if (!cliente) { if (!cLoading) setLoading(false); return; }
-    getAssinaturasCliente(cliente.id).then(a => { setAssinaturas(a); setLoading(false); });
+    getAssinaturasCliente(cliente.id)
+      .then(a => setAssinaturas(a))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [cliente, cLoading]);
 
   return { assinaturas, cliente, loading };
@@ -51,7 +54,10 @@ export function useClientePedidos() {
 
   useEffect(() => {
     if (!cliente) { if (!cLoading) setLoading(false); return; }
-    getPedidos(cliente.id).then(p => { setPedidos(p); setLoading(false); });
+    getPedidos(cliente.id)
+      .then(p => setPedidos(p))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [cliente, cLoading]);
 
   return { pedidos, cliente, loading };

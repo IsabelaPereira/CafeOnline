@@ -27,24 +27,25 @@ function mapPedido(r: any): Pedido {
   };
 }
 
+// Sem '*' e sem joins aninhados — evita bug do Supabase JS de stripping e erros de join
+const PEDIDO_SELECT = [
+  'status, id, numero, cliente_id, subtotal, frete, desconto, total',
+  'endereco_entrega, forma_pagamento, cupom, codigo_rastreio, observacoes, created_at, updated_at',
+  'itens:itens_pedido(id, produto_id, nome_produto, sku_produto, quantidade, preco_unitario, subtotal)',
+].join(', ');
+
 export async function getPedidos(clienteId?: string): Promise<Pedido[]> {
-  let q = supabase
-    .from('pedidos')
-    .select(`*, itens:itens_pedido(*), cliente:clientes(profile:profiles(name, email))`)
-    .order('created_at', { ascending: false });
+  let q = supabase.from('pedidos').select(PEDIDO_SELECT).order('created_at', { ascending: false });
   if (clienteId) q = q.eq('cliente_id', clienteId);
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []).map(r => mapPedido({ ...r, profile: r.cliente?.profile }));
+  return (data ?? []).map(r => mapPedido(r));
 }
 
 export async function getPedido(id: string): Promise<Pedido | null> {
-  const { data, error } = await supabase
-    .from('pedidos')
-    .select(`*, itens:itens_pedido(*), cliente:clientes(profile:profiles(name, email))`)
-    .eq('id', id).single();
+  const { data, error } = await supabase.from('pedidos').select(PEDIDO_SELECT).eq('id', id).single();
   if (error) return null;
-  return mapPedido({ ...data, profile: data.cliente?.profile });
+  return mapPedido(data);
 }
 
 export async function createPedido(pedido: {

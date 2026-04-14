@@ -1,18 +1,105 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Eye, Edit2, Globe, GlobeLock, ChevronDown, ChevronUp, Coffee, MapPin, Flame } from 'lucide-react';
+import {
+  Plus, Globe, GlobeLock, ChevronDown, ChevronUp,
+  Coffee, MapPin, Flame, Star, Trash2, Edit2, MessageSquare,
+} from 'lucide-react';
 import { Card, Badge, Button, Modal, Alert, Input } from '../../components/ui';
-import { getEdicoes, updateEdicao, createEdicao } from '../../services/edicoes.service';
+import {
+  getEdicoes, updateEdicao, createEdicao,
+  addCafeEdicao, removeCafeEdicao,
+} from '../../services/edicoes.service';
+import { getAvaliacoesBox, getAvaliacoesCafe } from '../../services/avaliacoes.service';
 import { getPlanos } from '../../services/assinaturas.service';
-import type { EdicaoClube, CafeEdicao, PlanoAssinatura } from '../../types';
+import { supabase } from '../../lib/supabase';
+import type { EdicaoClube, CafeEdicao, PlanoAssinatura, AvaliacaoBox, AvaliacaoCafe } from '../../types';
 
 const meses = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const mesesCompletos = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function fetchClienteNomes(clienteIds: string[]): Promise<Record<string, string>> {
+  if (clienteIds.length === 0) return {};
+  const { data: clientes } = await supabase.from('clientes').select('id, user_id').in('id', clienteIds);
+  if (!clientes?.length) return {};
+  const userIds = clientes.map((c: any) => c.user_id);
+  const { data: profiles } = await supabase.from('profiles').select('id, name, email').in('id', userIds);
+  const profileMap = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+  const result: Record<string, string> = {};
+  clientes.forEach((c: any) => {
+    const p = profileMap.get(c.user_id);
+    result[c.id] = p?.name || p?.email || `${c.id.slice(0, 8)}…`;
+  });
+  return result;
+}
+
+function StarsDisplay({ value }: { value: number }) {
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map(i => (
+        <Star key={i} size={11} className={i <= value ? 'text-yellow-400 fill-yellow-400' : 'text-charcoal-200'} />
+      ))}
+      <span className="ml-1 text-xs text-charcoal-400">{value}/5</span>
+    </span>
+  );
+}
+
+// ── Form defaults ─────────────────────────────────────────────────────────────
+
+interface FormEdicao {
+  titulo: string; mes: number; ano: number;
+  descricao: string; videoYoutube: string; textoExclusivo: string;
+}
+const defaultFormEdicao = (): FormEdicao => ({
+  titulo: '', mes: new Date().getMonth() + 1, ano: new Date().getFullYear(),
+  descricao: '', videoYoutube: '', textoExclusivo: '',
+});
+
+interface FormCafe {
+  nome: string; descricao: string; produtor: string; regiao: string; estado: string;
+  variedade: string; processo: string; altitude: string; torra: string;
+  notasSensoriais: string; sugestoesPreparo: string; curiosidades: string;
+}
+const defaultFormCafe = (): FormCafe => ({
+  nome: '', descricao: '', produtor: '', regiao: '', estado: '',
+  variedade: '', processo: '', altitude: '', torra: '',
+  notasSensoriais: '', sugestoesPreparo: '', curiosidades: '',
+});
+
+interface EditionRatings {
+  box:   Array<AvaliacaoBox & { clienteNome: string }>;
+  cafes: Array<AvaliacaoCafe & { clienteNome: string }>;
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function AdminEdicoes() {
-  const [edicoes, setEdicoes] = useState<EdicaoClube[]>([]);
-  const [planos, setPlanos] = useState<PlanoAssinatura[]>([]);
+  const [edicoes, setEdicoes]   = useState<EdicaoClube[]>([]);
+  const [planos, setPlanos]     = useState<PlanoAssinatura[]>([]);
   const [expandido, setExpandido] = useState<string | null>(null);
-  const [modal, setModal] = useState<'view' | 'new' | null>(null);
-  const [edicaoSel, setEdicaoSel] = useState<EdicaoClube | null>(null);
+  const [tabAtiva, setTabAtiva]   = useState<Record<string, 'cafes' | 'avaliacoes'>>({});
+
+  // Modals
+  type ModalType = 'new' | 'edit' | 'view' | 'cafe' | null;
+  const [modal, setModal]           = useState<ModalType>(null);
+  const [edicaoSel, setEdicaoSel]   = useState<EdicaoClube | null>(null);
+
+  // Edition form
+  const [formEdicao, setFormEdicao] = useState<FormEdicao>(defaultFormEdicao());
+  const [savingEdicao, setSavingEdicao] = useState(false);
+  const [erroEdicao, setErroEdicao]     = useState('');
+
+  // Café form
+  const [formCafe, setFormCafe]     = useState<FormCafe>(defaultFormCafe());
+  const [savingCafe, setSavingCafe] = useState(false);
+  const [erroCafe, setErroCafe]     = useState('');
+  const [cafeEdicaoId, setCafeEdicaoId] = useState('');
+
+  // Ratings
+  const [ratings, setRatings]             = useState<Record<string, EditionRatings>>({});
+  const [loadingRatings, setLoadingRatings] = useState<Record<string, boolean>>({});
+
+  // Feedback
   const [sucesso, setSucesso] = useState('');
 
   useEffect(() => {
@@ -20,21 +107,106 @@ export function AdminEdicoes() {
     getPlanos().then(setPlanos).catch(console.error);
   }, []);
 
-  // Formulário nova edição (simplificado)
-  const [form, setForm] = useState({
-    titulo: '',
-    mes: new Date().getMonth() + 1,
-    ano: new Date().getFullYear(),
-    descricao: '',
-  });
+  // ── Expand / tabs ─────────────────────────────────────────────────────────
 
   function toggle(id: string) {
-    setExpandido(prev => prev === id ? null : id);
+    setExpandido(prev => {
+      if (prev === id) return null;
+      setTabAtiva(t => ({ ...t, [id]: t[id] ?? 'cafes' }));
+      return id;
+    });
   }
 
-  function abrirVisualizar(ed: EdicaoClube) {
+  async function mudarTab(edicaoId: string, tab: 'cafes' | 'avaliacoes') {
+    setTabAtiva(p => ({ ...p, [edicaoId]: tab }));
+    if (tab === 'avaliacoes' && !ratings[edicaoId] && !loadingRatings[edicaoId]) {
+      setLoadingRatings(p => ({ ...p, [edicaoId]: true }));
+      try {
+        const [boxList, cafeList] = await Promise.all([
+          getAvaliacoesBox(undefined, edicaoId).catch(() => [] as AvaliacaoBox[]),
+          getAvaliacoesCafe(undefined, edicaoId).catch(() => [] as AvaliacaoCafe[]),
+        ]);
+        const ids = [...new Set([...boxList.map(r => r.clienteId), ...cafeList.map(r => r.clienteId)])];
+        const nomes = await fetchClienteNomes(ids);
+        setRatings(p => ({
+          ...p,
+          [edicaoId]: {
+            box:   boxList.map(r  => ({ ...r,  clienteNome: nomes[r.clienteId]  ?? r.clienteId.slice(0, 8) })),
+            cafes: cafeList.map(r => ({ ...r,  clienteNome: nomes[r.clienteId]  ?? r.clienteId.slice(0, 8) })),
+          },
+        }));
+      } finally {
+        setLoadingRatings(p => ({ ...p, [edicaoId]: false }));
+      }
+    }
+  }
+
+  // ── Edition CRUD ─────────────────────────────────────────────────────────
+
+  function abrirNovaEdicao() {
+    setFormEdicao(defaultFormEdicao());
+    setErroEdicao('');
+    setModal('new');
+  }
+
+  function abrirEditarEdicao(ed: EdicaoClube) {
     setEdicaoSel(ed);
-    setModal('view');
+    setFormEdicao({
+      titulo: ed.titulo, mes: ed.mes, ano: ed.ano,
+      descricao: ed.descricao, videoYoutube: ed.videoYoutube ?? '', textoExclusivo: ed.textoExclusivo ?? '',
+    });
+    setErroEdicao('');
+    setModal('edit');
+  }
+
+  async function handleCriarEdicao() {
+    if (!formEdicao.titulo.trim()) return;
+    setSavingEdicao(true);
+    setErroEdicao('');
+    try {
+      const nova = await createEdicao({
+        titulo: formEdicao.titulo.trim(),
+        mes: formEdicao.mes,
+        ano: formEdicao.ano,
+        descricao: formEdicao.descricao || undefined,
+        videoYoutube: formEdicao.videoYoutube || undefined,
+        textoExclusivo: formEdicao.textoExclusivo || undefined,
+      });
+      setEdicoes(prev => [nova, ...prev]);
+      setModal(null);
+      flash(`Edição "${nova.titulo}" criada como rascunho.`);
+    } catch (err: any) {
+      setErroEdicao(err?.message ?? 'Erro ao criar edição. Verifique as permissões.');
+    } finally {
+      setSavingEdicao(false);
+    }
+  }
+
+  async function handleSalvarEdicao() {
+    if (!edicaoSel || !formEdicao.titulo.trim()) return;
+    setSavingEdicao(true);
+    setErroEdicao('');
+    try {
+      await updateEdicao(edicaoSel.id, {
+        titulo: formEdicao.titulo.trim(),
+        mes: formEdicao.mes,
+        ano: formEdicao.ano,
+        descricao: formEdicao.descricao || undefined,
+        videoYoutube: formEdicao.videoYoutube || undefined,
+        textoExclusivo: formEdicao.textoExclusivo || undefined,
+      });
+      setEdicoes(prev => prev.map(e =>
+        e.id === edicaoSel.id
+          ? { ...e, titulo: formEdicao.titulo, mes: formEdicao.mes, ano: formEdicao.ano, descricao: formEdicao.descricao, videoYoutube: formEdicao.videoYoutube || undefined, textoExclusivo: formEdicao.textoExclusivo || undefined }
+          : e,
+      ));
+      setModal(null);
+      flash(`Edição atualizada.`);
+    } catch (err: any) {
+      setErroEdicao(err?.message ?? 'Erro ao salvar.');
+    } finally {
+      setSavingEdicao(false);
+    }
   }
 
   async function togglePublicado(id: string) {
@@ -42,25 +214,122 @@ export function AdminEdicoes() {
     if (!ed) return;
     const novaPublicada = !ed.publicada;
     setEdicoes(prev => prev.map(e => e.id === id ? { ...e, publicada: novaPublicada } : e));
-    setSucesso(`Edição "${ed.titulo}" ${novaPublicada ? 'publicada' : 'despublicada'}.`);
-    setTimeout(() => setSucesso(''), 4000);
+    flash(`Edição "${ed.titulo}" ${novaPublicada ? 'publicada' : 'despublicada'}.`);
     await updateEdicao(id, { publicada: novaPublicada }).catch(console.error);
   }
 
-  async function handleCriarEdicao() {
-    if (!form.titulo.trim()) return;
-    const nova = await createEdicao({ titulo: form.titulo, mes: form.mes, ano: form.ano, descricao: form.descricao }).catch(() => null);
-    if (!nova) return;
-    setEdicoes(prev => [nova, ...prev]);
-    setModal(null);
-    setForm({ titulo: '', mes: new Date().getMonth() + 1, ano: new Date().getFullYear(), descricao: '' });
-    setSucesso(`Edição "${nova.titulo}" criada como rascunho.`);
+  // ── Café CRUD ─────────────────────────────────────────────────────────────
+
+  function abrirAdicionarCafe(edicaoId: string) {
+    setCafeEdicaoId(edicaoId);
+    setFormCafe(defaultFormCafe());
+    setErroCafe('');
+    setModal('cafe');
+  }
+
+  async function handleAdicionarCafe() {
+    if (!formCafe.nome.trim() || !cafeEdicaoId) return;
+    setSavingCafe(true);
+    setErroCafe('');
+    try {
+      const novo = await addCafeEdicao(cafeEdicaoId, {
+        nome:             formCafe.nome.trim(),
+        descricao:        formCafe.descricao,
+        produtor:         formCafe.produtor,
+        regiao:           formCafe.regiao,
+        estado:           formCafe.estado,
+        variedade:        formCafe.variedade,
+        processo:         formCafe.processo,
+        altitude:         formCafe.altitude,
+        torra:            formCafe.torra,
+        notasSensoriais:  formCafe.notasSensoriais.split(',').map(s => s.trim()).filter(Boolean),
+        sugestoesPreparo: formCafe.sugestoesPreparo.split(',').map(s => s.trim()).filter(Boolean),
+        curiosidades:     formCafe.curiosidades || undefined,
+      });
+      setEdicoes(prev => prev.map(e =>
+        e.id === cafeEdicaoId ? { ...e, cafes: [...e.cafes, novo] } : e,
+      ));
+      setModal(null);
+      flash('Café adicionado à edição.');
+    } catch (err: any) {
+      setErroCafe(err?.message ?? 'Erro ao adicionar café.');
+    } finally {
+      setSavingCafe(false);
+    }
+  }
+
+  async function handleRemoverCafe(edicaoId: string, cafeId: string, cafeNome: string) {
+    if (!window.confirm(`Remover "${cafeNome}" desta edição?`)) return;
+    await removeCafeEdicao(cafeId).catch(console.error);
+    setEdicoes(prev => prev.map(e =>
+      e.id === edicaoId ? { ...e, cafes: e.cafes.filter(c => c.id !== cafeId) } : e,
+    ));
+  }
+
+  function flash(msg: string) {
+    setSucesso(msg);
     setTimeout(() => setSucesso(''), 4000);
   }
 
-  // Estatísticas
-  const total = edicoes.length;
+  const total     = edicoes.length;
   const publicadas = edicoes.filter(e => e.publicada).length;
+
+  // ── Form field helpers ────────────────────────────────────────────────────
+
+  const fieldEdicao = (label: string, key: keyof FormEdicao, props?: React.InputHTMLAttributes<HTMLInputElement>) => (
+    <Input label={label} value={String(formEdicao[key])} onChange={e => setFormEdicao(p => ({ ...p, [key]: props?.type === 'number' ? Number(e.target.value) : e.target.value }))} {...props} />
+  );
+
+  const textareaEdicao = (label: string, key: keyof FormEdicao, placeholder?: string, rows = 3) => (
+    <div>
+      <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">{label}</label>
+      <textarea
+        value={String(formEdicao[key])}
+        onChange={e => setFormEdicao(p => ({ ...p, [key]: e.target.value }))}
+        rows={rows}
+        placeholder={placeholder}
+        className="w-full border border-cream-200 rounded-sm px-3 py-2.5 text-sm text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400 resize-none"
+      />
+    </div>
+  );
+
+  const fieldCafe = (label: string, key: keyof FormCafe, placeholder?: string) => (
+    <div>
+      <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1">{label}</label>
+      <input
+        value={formCafe[key]}
+        onChange={e => setFormCafe(p => ({ ...p, [key]: e.target.value }))}
+        placeholder={placeholder}
+        className="w-full border border-cream-200 rounded-sm px-3 py-2.5 text-sm text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400"
+      />
+    </div>
+  );
+
+  const edicaoFormFields = (
+    <div className="space-y-4">
+      {fieldEdicao('Título da edição *', 'titulo', { placeholder: 'Ex: Edição Verão — Frutados e Naturais' })}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Mês</label>
+          <select
+            value={formEdicao.mes}
+            onChange={e => setFormEdicao(p => ({ ...p, mes: Number(e.target.value) }))}
+            className="w-full border border-cream-200 rounded-sm px-3 py-2.5 text-sm text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400"
+          >
+            {mesesCompletos.slice(1).map((m, i) => (
+              <option key={i + 1} value={i + 1}>{m}</option>
+            ))}
+          </select>
+        </div>
+        {fieldEdicao('Ano', 'ano', { type: 'number', min: 2020, max: 2099 })}
+      </div>
+      {textareaEdicao('Descrição', 'descricao', 'Breve descrição da curadoria desta edição...')}
+      {fieldEdicao('Vídeo YouTube (URL)', 'videoYoutube', { placeholder: 'https://youtube.com/...' })}
+      {textareaEdicao('Texto exclusivo para membros', 'textoExclusivo', 'Conteúdo especial visível apenas para assinantes...', 4)}
+    </div>
+  );
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -69,7 +338,7 @@ export function AdminEdicoes() {
           <h1 className="font-serif text-3xl text-charcoal-700">Edições do Clube</h1>
           <p className="text-charcoal-400 text-sm mt-1">Gerencie as edições mensais enviadas aos assinantes.</p>
         </div>
-        <Button variant="primary" icon={<Plus size={14} />} onClick={() => setModal('new')}>
+        <Button variant="primary" icon={<Plus size={14} />} onClick={abrirNovaEdicao}>
           Nova edição
         </Button>
       </div>
@@ -79,10 +348,10 @@ export function AdminEdicoes() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total de edições', value: total, color: 'text-charcoal-700' },
-          { label: 'Publicadas', value: publicadas, color: 'text-forest-600' },
-          { label: 'Rascunhos', value: total - publicadas, color: 'text-yellow-600' },
-          { label: 'Planos ativos', value: planos.filter(p => p.ativo).length, color: 'text-earth-600' },
+          { label: 'Total de edições', value: total,            color: 'text-charcoal-700' },
+          { label: 'Publicadas',        value: publicadas,       color: 'text-forest-600'   },
+          { label: 'Rascunhos',         value: total - publicadas, color: 'text-yellow-600' },
+          { label: 'Planos ativos',     value: planos.filter(p => p.ativo).length, color: 'text-earth-600' },
         ].map(s => (
           <Card key={s.label} className="text-center py-4">
             <p className={`font-serif text-3xl ${s.color}`}>{s.value}</p>
@@ -91,12 +360,16 @@ export function AdminEdicoes() {
         ))}
       </div>
 
-      {/* Lista de edições */}
+      {/* Edition list */}
       <div className="space-y-4">
         {edicoes.map(ed => {
           const aberto = expandido === ed.id;
+          const tab    = tabAtiva[ed.id] ?? 'cafes';
+          const rat    = ratings[ed.id];
+
           return (
             <Card key={ed.id} padding={false}>
+              {/* Header row */}
               <div className="p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-4 min-w-0">
@@ -112,16 +385,18 @@ export function AdminEdicoes() {
                         </Badge>
                       </div>
                       <p className="text-sm text-charcoal-400 mt-0.5 line-clamp-1">{ed.descricao}</p>
-                      <p className="text-xs text-charcoal-300 mt-1">{ed.cafes.length} café{ed.cafes.length !== 1 ? 's' : ''} nesta edição</p>
+                      <p className="text-xs text-charcoal-300 mt-1">
+                        {ed.cafes.length} café{ed.cafes.length !== 1 ? 's' : ''} nesta edição
+                      </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
-                      onClick={() => abrirVisualizar(ed)}
+                      onClick={() => abrirEditarEdicao(ed)}
                       className="p-2 hover:bg-cream-100 rounded-sm text-charcoal-400 hover:text-charcoal-600 transition-colors"
-                      title="Visualizar"
+                      title="Editar"
                     >
-                      <Eye size={15} />
+                      <Edit2 size={15} />
                     </button>
                     <button
                       onClick={() => togglePublicado(ed.id)}
@@ -140,24 +415,156 @@ export function AdminEdicoes() {
                 </div>
               </div>
 
-              {aberto && ed.cafes.length > 0 && (
-                <div className="border-t border-cream-100 px-5 pb-5">
-                  <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mt-4 mb-3">Cafés desta edição</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {ed.cafes.map(cafe => (
-                      <CafeCard key={cafe.id} cafe={cafe} />
+              {/* Expanded content */}
+              {aberto && (
+                <div className="border-t border-cream-100">
+                  {/* Tabs */}
+                  <div className="flex border-b border-cream-100">
+                    {(['cafes', 'avaliacoes'] as const).map(t => (
+                      <button
+                        key={t}
+                        onClick={() => mudarTab(ed.id, t)}
+                        className={`px-5 py-3 text-xs font-medium uppercase tracking-wider transition-colors ${
+                          tab === t
+                            ? 'text-forest-600 border-b-2 border-forest-500'
+                            : 'text-charcoal-400 hover:text-charcoal-600'
+                        }`}
+                      >
+                        {t === 'cafes' ? `Cafés (${ed.cafes.length})` : 'Avaliações'}
+                      </button>
                     ))}
                   </div>
-                </div>
-              )}
 
-              {aberto && ed.cafes.length === 0 && (
-                <div className="border-t border-cream-100 px-5 py-6 text-center">
-                  <Coffee size={24} className="text-charcoal-200 mx-auto mb-2" />
-                  <p className="text-sm text-charcoal-400">Nenhum café adicionado a esta edição.</p>
-                  <button className="mt-2 text-xs text-forest-500 hover:text-forest-600 font-medium">
-                    + Adicionar café
-                  </button>
+                  {/* Tab: Cafés */}
+                  {tab === 'cafes' && (
+                    <div className="px-5 pb-5">
+                      {ed.cafes.length > 0 ? (
+                        <>
+                          <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mt-4 mb-3">Cafés desta edição</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {ed.cafes.map(cafe => (
+                              <CafeCard
+                                key={cafe.id}
+                                cafe={cafe}
+                                onRemove={() => handleRemoverCafe(ed.id, cafe.id, cafe.nome)}
+                              />
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="py-8 text-center">
+                          <Coffee size={24} className="text-charcoal-200 mx-auto mb-2" />
+                          <p className="text-sm text-charcoal-400">Nenhum café adicionado ainda.</p>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => abrirAdicionarCafe(ed.id)}
+                        className="mt-4 flex items-center gap-1.5 text-xs font-medium text-forest-500 hover:text-forest-600 transition-colors"
+                      >
+                        <Plus size={13} />
+                        Adicionar café
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Tab: Avaliações */}
+                  {tab === 'avaliacoes' && (
+                    <div className="px-5 py-5">
+                      {loadingRatings[ed.id] ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="w-5 h-5 border-2 border-forest-400 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : !rat || (rat.box.length === 0 && rat.cafes.length === 0) ? (
+                        <div className="text-center py-8">
+                          <MessageSquare size={24} className="text-charcoal-200 mx-auto mb-2" />
+                          <p className="text-sm text-charcoal-400">Nenhuma avaliação recebida ainda.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {/* Box ratings */}
+                          {rat.box.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">
+                                Avaliações da Box ({rat.box.length})
+                              </p>
+                              <div className="space-y-3">
+                                {rat.box.map(r => (
+                                  <div key={r.id} className="bg-cream-50 rounded-sm p-3 space-y-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-xs font-medium text-charcoal-600">{r.clienteNome}</span>
+                                      <StarsDisplay value={r.notaGeral} />
+                                    </div>
+                                    {r.comentario && (
+                                      <p className="text-xs text-charcoal-500 italic">"{r.comentario}"</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Café ratings grouped by café */}
+                          {rat.cafes.length > 0 && (() => {
+                            const byCafe: Record<string, typeof rat.cafes> = {};
+                            rat.cafes.forEach(r => {
+                              if (!byCafe[r.cafeId]) byCafe[r.cafeId] = [];
+                              byCafe[r.cafeId].push(r);
+                            });
+                            return (
+                              <div>
+                                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">
+                                  Avaliações por Café
+                                </p>
+                                {Object.entries(byCafe).map(([cafeId, reviews]) => {
+                                  const cafe = ed.cafes.find(c => c.id === cafeId);
+                                  const avg  = reviews.reduce((s, r) => s + r.notaGeral, 0) / reviews.length;
+                                  return (
+                                    <div key={cafeId} className="mb-4">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <p className="text-sm font-medium text-charcoal-700">
+                                          {cafe?.nome ?? 'Café'}
+                                        </p>
+                                        <StarsDisplay value={Math.round(avg)} />
+                                        <span className="text-xs text-charcoal-400">({reviews.length})</span>
+                                      </div>
+                                      <div className="space-y-2">
+                                        {reviews.map(r => (
+                                          <div key={r.id} className="bg-cream-50 rounded-sm p-3 space-y-1.5">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="text-xs font-medium text-charcoal-600">{r.clienteNome}</span>
+                                              <StarsDisplay value={r.notaGeral} />
+                                            </div>
+                                            {(r.aroma || r.docura || r.acidez || r.corpo || r.finalizacao) > 0 && (
+                                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                                {[
+                                                  { l: 'Aroma', v: r.aroma },
+                                                  { l: 'Doçura', v: r.docura },
+                                                  { l: 'Acidez', v: r.acidez },
+                                                  { l: 'Corpo', v: r.corpo },
+                                                  { l: 'Final.', v: r.finalizacao },
+                                                ].filter(x => x.v > 0).map(x => (
+                                                  <span key={x.l} className="text-xs text-charcoal-400">
+                                                    {x.l}: <span className="text-charcoal-600 font-medium">{x.v}/5</span>
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )}
+                                            {r.comentario && (
+                                              <p className="text-xs text-charcoal-500 italic">"{r.comentario}"</p>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
@@ -165,137 +572,125 @@ export function AdminEdicoes() {
         })}
       </div>
 
-      {/* Modal visualizar edição */}
-      <Modal
-        open={modal === 'view' && !!edicaoSel}
-        onClose={() => setModal(null)}
-        title={edicaoSel?.titulo ?? ''}
-        size="lg"
-      >
-        {edicaoSel && (
-          <div className="space-y-5">
-            <div className="flex items-center gap-3">
-              <Badge variant={edicaoSel.publicada ? 'active' : 'pending'}>
-                {edicaoSel.publicada ? 'Publicada' : 'Rascunho'}
-              </Badge>
-              <span className="text-sm text-charcoal-400">
-                {meses[edicaoSel.mes]}/{edicaoSel.ano}
-              </span>
-            </div>
-            <p className="text-charcoal-600 text-sm">{edicaoSel.descricao}</p>
-
-            {edicaoSel.textoExclusivo && (
-              <div className="bg-cream-50 rounded-sm p-4">
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Texto exclusivo (membros)</p>
-                <p className="text-sm text-charcoal-600 line-clamp-4">{edicaoSel.textoExclusivo}</p>
-              </div>
-            )}
-
-            {edicaoSel.cafes.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Cafés</p>
-                <div className="space-y-4">
-                  {edicaoSel.cafes.map(cafe => (
-                    <div key={cafe.id} className="border border-cream-200 rounded-sm p-4">
-                      <p className="font-serif text-base text-charcoal-700 mb-2">{cafe.nome}</p>
-                      <p className="text-sm text-charcoal-500 mb-3">{cafe.descricao}</p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                        {[
-                          { l: 'Produtor', v: cafe.produtor },
-                          { l: 'Região', v: `${cafe.regiao} — ${cafe.estado}` },
-                          { l: 'Variedade', v: cafe.variedade },
-                          { l: 'Processo', v: cafe.processo },
-                          { l: 'Altitude', v: cafe.altitude },
-                          { l: 'Torra', v: cafe.torra },
-                        ].map(item => (
-                          <div key={item.l} className="bg-cream-50 rounded-sm px-3 py-2">
-                            <p className="text-charcoal-400 mb-0.5">{item.l}</p>
-                            <p className="font-medium text-charcoal-700">{item.v}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 mt-3">
-                        {cafe.notasSensoriais.map(n => (
-                          <span key={n} className="bg-earth-50 text-earth-600 text-xs px-2 py-0.5 rounded-full">{n}</span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end pt-2 border-t border-cream-100">
-              <Button variant="secondary" onClick={() => togglePublicado(edicaoSel.id)}>
-                {edicaoSel.publicada ? 'Despublicar' : 'Publicar edição'}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Modal nova edição */}
-      <Modal open={modal === 'new'} onClose={() => setModal(null)} title="Nova Edição do Clube">
+      {/* ── Modal: Nova edição ──────────────────────────────────────────────── */}
+      <Modal open={modal === 'new'} onClose={() => setModal(null)} title="Nova Edição do Clube" size="md">
         <div className="space-y-4">
-          <Input
-            label="Título da edição *"
-            value={form.titulo}
-            onChange={e => setForm(p => ({ ...p, titulo: e.target.value }))}
-            placeholder="Ex: Edição Verão — Frutados e Naturais"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Mês</label>
-              <select
-                value={form.mes}
-                onChange={e => setForm(p => ({ ...p, mes: Number(e.target.value) }))}
-                className="w-full border border-cream-200 rounded-sm px-3 py-2.5 text-sm text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400"
-              >
-                {meses.slice(1).map((m, i) => (
-                  <option key={i + 1} value={i + 1}>{m}</option>
-                ))}
-              </select>
-            </div>
-            <Input
-              label="Ano"
-              type="number"
-              value={form.ano}
-              onChange={e => setForm(p => ({ ...p, ano: Number(e.target.value) }))}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Descrição</label>
-            <textarea
-              value={form.descricao}
-              onChange={e => setForm(p => ({ ...p, descricao: e.target.value }))}
-              rows={3}
-              placeholder="Breve descrição da curadoria desta edição..."
-              className="w-full border border-cream-200 rounded-sm px-3 py-2.5 text-sm text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400 resize-none"
-            />
-          </div>
-          <p className="text-xs text-charcoal-400">A edição será criada como rascunho. Adicione os cafés e publique quando estiver pronta.</p>
+          {edicaoFormFields}
+          {erroEdicao && <Alert type="error" message={erroEdicao} />}
+          <p className="text-xs text-charcoal-400">
+            A edição será criada como rascunho. Adicione os cafés e publique quando estiver pronta.
+          </p>
           <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
             <Button variant="ghost" onClick={() => setModal(null)}>Cancelar</Button>
-            <Button variant="primary" icon={<Plus size={14} />} onClick={handleCriarEdicao} disabled={!form.titulo.trim()}>
+            <Button
+              variant="primary"
+              icon={<Plus size={14} />}
+              loading={savingEdicao}
+              disabled={!formEdicao.titulo.trim()}
+              onClick={handleCriarEdicao}
+            >
               Criar edição
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal: Editar edição ────────────────────────────────────────────── */}
+      <Modal open={modal === 'edit'} onClose={() => setModal(null)} title={`Editar: ${edicaoSel?.titulo ?? ''}`} size="md">
+        <div className="space-y-4">
+          {edicaoFormFields}
+          {erroEdicao && <Alert type="error" message={erroEdicao} />}
+          <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+            <Button variant="ghost" onClick={() => setModal(null)}>Cancelar</Button>
+            <Button
+              variant="primary"
+              loading={savingEdicao}
+              disabled={!formEdicao.titulo.trim()}
+              onClick={handleSalvarEdicao}
+            >
+              Salvar alterações
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal: Adicionar café ───────────────────────────────────────────── */}
+      <Modal open={modal === 'cafe'} onClose={() => setModal(null)} title="Adicionar Café à Edição" size="md">
+        <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+          {fieldCafe('Nome do café *', 'nome', 'Ex: Mogiana — Gesha Anaeróbico')}
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1">Descrição</label>
+            <textarea
+              value={formCafe.descricao}
+              onChange={e => setFormCafe(p => ({ ...p, descricao: e.target.value }))}
+              rows={2}
+              placeholder="Descrição do café..."
+              className="w-full border border-cream-200 rounded-sm px-3 py-2.5 text-sm text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400 resize-none"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {fieldCafe('Produtor', 'produtor', 'Nome do produtor')}
+            {fieldCafe('Região', 'regiao', 'Ex: Mogiana')}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {fieldCafe('Estado', 'estado', 'Ex: SP')}
+            {fieldCafe('Variedade', 'variedade', 'Ex: Gesha')}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {fieldCafe('Processo', 'processo', 'Ex: Natural, Lavado...')}
+            {fieldCafe('Altitude', 'altitude', 'Ex: 1200 m')}
+          </div>
+          {fieldCafe('Torra', 'torra', 'Ex: Média-Clara')}
+          {fieldCafe('Notas sensoriais', 'notasSensoriais', 'Manga, Maracujá, Hibisco (separadas por vírgula)')}
+          {fieldCafe('Sugestões de preparo', 'sugestoesPreparo', 'Coado, Prensa Francesa (separadas por vírgula)')}
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1">Curiosidades</label>
+            <textarea
+              value={formCafe.curiosidades}
+              onChange={e => setFormCafe(p => ({ ...p, curiosidades: e.target.value }))}
+              rows={2}
+              placeholder="Informações adicionais sobre o café..."
+              className="w-full border border-cream-200 rounded-sm px-3 py-2.5 text-sm text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400 resize-none"
+            />
+          </div>
+          {erroCafe && <Alert type="error" message={erroCafe} />}
+        </div>
+        <div className="flex justify-end gap-3 pt-4 border-t border-cream-100 mt-4">
+          <Button variant="ghost" onClick={() => setModal(null)}>Cancelar</Button>
+          <Button
+            variant="primary"
+            icon={<Coffee size={14} />}
+            loading={savingCafe}
+            disabled={!formCafe.nome.trim()}
+            onClick={handleAdicionarCafe}
+          >
+            Adicionar café
+          </Button>
         </div>
       </Modal>
     </div>
   );
 }
 
-function CafeCard({ cafe }: { cafe: CafeEdicao }) {
+// ── Café card sub-component ───────────────────────────────────────────────────
+
+function CafeCard({ cafe, onRemove }: { cafe: CafeEdicao; onRemove: () => void }) {
   return (
-    <div className="bg-cream-50 rounded-sm p-4">
-      <p className="font-serif text-sm text-charcoal-700 mb-1">{cafe.nome}</p>
+    <div className="bg-cream-50 rounded-sm p-4 relative group">
+      <button
+        onClick={onRemove}
+        className="absolute top-2 right-2 p-1 opacity-0 group-hover:opacity-100 text-charcoal-300 hover:text-red-500 transition-all rounded-sm hover:bg-red-50"
+        title="Remover café"
+      >
+        <Trash2 size={12} />
+      </button>
+      <p className="font-serif text-sm text-charcoal-700 mb-1 pr-5">{cafe.nome}</p>
       <div className="flex items-center gap-3 text-xs text-charcoal-400 mb-2">
         <span className="flex items-center gap-1"><MapPin size={10} />{cafe.regiao}</span>
         <span className="flex items-center gap-1"><Flame size={10} />{cafe.torra}</span>
       </div>
       <div className="flex flex-wrap gap-1">
-        {cafe.notasSensoriais.slice(0, 3).map(n => (
+        {cafe.notasSensoriais.slice(0, 4).map(n => (
           <span key={n} className="bg-white border border-cream-200 text-charcoal-500 text-xs px-2 py-0.5 rounded-full">{n}</span>
         ))}
       </div>

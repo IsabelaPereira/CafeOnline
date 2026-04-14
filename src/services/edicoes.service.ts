@@ -24,8 +24,13 @@ function mapEdicao(r: any): EdicaoClube {
   };
 }
 
+const EDICAO_SELECT = [
+  'publicada, id, titulo, mes, ano, descricao, foto, video_youtube, texto_exclusivo, created_at',
+  'cafes:cafes_edicao(id, nome, descricao, produtor, regiao, estado, variedade, processo, altitude, torra, notas_sensoriais, sugestoes_preparo, foto, curiosidades)',
+].join(', ');
+
 export async function getEdicoes(apenasPublicadas = false): Promise<EdicaoClube[]> {
-  let q = supabase.from('edicoes_clube').select('*, cafes:cafes_edicao(*)').order('ano', { ascending: false }).order('mes', { ascending: false });
+  let q = supabase.from('edicoes_clube').select(EDICAO_SELECT).order('ano', { ascending: false }).order('mes', { ascending: false });
   if (apenasPublicadas) q = q.eq('publicada', true);
   const { data, error } = await q;
   if (error) throw error;
@@ -33,22 +38,30 @@ export async function getEdicoes(apenasPublicadas = false): Promise<EdicaoClube[
 }
 
 export async function getEdicao(id: string): Promise<EdicaoClube | null> {
-  const { data, error } = await supabase.from('edicoes_clube').select('*, cafes:cafes_edicao(*)').eq('id', id).single();
+  const { data, error } = await supabase.from('edicoes_clube').select(EDICAO_SELECT).eq('id', id).single();
   if (error) return null;
   return mapEdicao(data);
 }
 
-export async function createEdicao(e: { titulo: string; mes: number; ano: number; descricao?: string }): Promise<EdicaoClube> {
+export async function createEdicao(e: {
+  titulo: string; mes: number; ano: number; descricao?: string;
+  videoYoutube?: string; textoExclusivo?: string;
+}): Promise<EdicaoClube> {
   const { data, error } = await supabase.from('edicoes_clube').insert({
-    titulo: e.titulo, mes: e.mes, ano: e.ano, descricao: e.descricao, publicada: false,
+    titulo: e.titulo, mes: e.mes, ano: e.ano, descricao: e.descricao ?? null,
+    publicada: false,
+    video_youtube:    e.videoYoutube    ?? null,
+    texto_exclusivo:  e.textoExclusivo  ?? null,
   }).select().single();
   if (error) throw error;
   return mapEdicao({ ...data, cafes: [] });
 }
 
-export async function updateEdicao(id: string, patch: Partial<Pick<EdicaoClube, 'titulo' | 'descricao' | 'videoYoutube' | 'textoExclusivo' | 'publicada'>>): Promise<void> {
+export async function updateEdicao(id: string, patch: Partial<Pick<EdicaoClube, 'titulo' | 'mes' | 'ano' | 'descricao' | 'videoYoutube' | 'textoExclusivo' | 'publicada'>>): Promise<void> {
   const p: Record<string, unknown> = {};
   if (patch.titulo !== undefined)         p.titulo = patch.titulo;
+  if (patch.mes !== undefined)            p.mes = patch.mes;
+  if (patch.ano !== undefined)            p.ano = patch.ano;
   if (patch.descricao !== undefined)      p.descricao = patch.descricao;
   if (patch.videoYoutube !== undefined)   p.video_youtube = patch.videoYoutube;
   if (patch.textoExclusivo !== undefined) p.texto_exclusivo = patch.textoExclusivo;

@@ -17,10 +17,16 @@ function mapLead(r: any): Lead {
   };
 }
 
+const LEAD_SELECT = [
+  'etapa, id, nome, email, telefone, origem, interesse, plano_desejado, tags, responsavel',
+  'ultimo_contato, proximo_follow_up, observacoes, cliente_id, created_at',
+  'interacoes:interacoes_crm(id, tipo, conteudo, data, usuario)',
+].join(', ');
+
 export async function getLeads(): Promise<Lead[]> {
   const { data, error } = await supabase
     .from('leads')
-    .select('*, interacoes:interacoes_crm(*)')
+    .select(LEAD_SELECT)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map(mapLead);
@@ -28,7 +34,7 @@ export async function getLeads(): Promise<Lead[]> {
 
 export async function getLead(id: string): Promise<Lead | null> {
   const { data, error } = await supabase
-    .from('leads').select('*, interacoes:interacoes_crm(*)').eq('id', id).single();
+    .from('leads').select(LEAD_SELECT).eq('id', id).single();
   if (error) return null;
   return mapLead(data);
 }

@@ -1,36 +1,75 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Package, Star } from 'lucide-react';
+import { updateAssinaturaStatus, registrarCobrancaInicial } from '../../services/assinaturas.service';
 import { updatePedidoStatus } from '../../services/pedidos.service';
-import { updateAssinaturaStatus } from '../../services/assinaturas.service';
 import { updateLeadEtapa } from '../../services/leads.service';
+import { supabase } from '../../lib/supabase';
 
 export function SuccessPage() {
   const [params] = useSearchParams();
-  const tipo   = params.get('tipo') ?? 'pedido'; // 'pedido' | 'assinatura'
-  const id     = params.get('id')   ?? '';
-  const leadId = params.get('lead') ?? '';
+  const tipo      = params.get('tipo')       ?? 'pedido';
+  const id        = params.get('id')         ?? '';
+  const leadId    = params.get('lead')       ?? '';
+  const sessionId = params.get('session_id') ?? '';
 
   const [done, setDone] = useState(false);
 
   useEffect(() => {
     if (!id) { setDone(true); return; }
 
-    const updates: Promise<unknown>[] = [];
+    const tasks: Promise<unknown>[] = [];
 
+    // ── 1. Atualização de status — sempre, direto no banco ───────────────────
+    // Funciona após migration 009 (política RLS para cliente ativar própria assinatura)
     if (tipo === 'assinatura') {
-      updates.push(updateAssinaturaStatus(id, 'ativa'));
-      if (leadId) updates.push(updateLeadEtapa(leadId, 'assinatura_concluida'));
+      // Ativa assinatura + registra cobrança inicial (fallback sem Edge Function)
+      tasks.push(
+        updateAssinaturaStatus(id, 'ativa')
+          .then(() => registrarCobrancaInicial(id))
+          .catch(() => {}),
+      );
     } else {
-      updates.push(updatePedidoStatus(id, 'pago'));
+      tasks.push(updatePedidoStatus(id, 'pago').catch(() => {}));
     }
 
-    // Limpa dados temporários de sessão
+    // ── 2. Lead ──────────────────────────────────────────────────────────────
+    if (leadId && tipo === 'assinatura') {
+      tasks.push(updateLeadEtapa(leadId, 'assinatura_concluida').catch(() => {}));
+    }
+
+    // ── 3. Edge Function: cria cobrança + salva cartão (requer deploy) ───────
+    // Falha silenciosamente — não bloqueia a experiência do usuário
+    if (sessionId) {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+      tasks.push(
+        supabase.auth.getSession()
+          .then(({ data }) => {
+            const token = data.session?.access_token ?? supabaseKey;
+            return fetch(`${supabaseUrl}/functions/v1/save-payment-method`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+                apikey: supabaseKey,
+              },
+              body: JSON.stringify({
+                session_id: sessionId,
+                tipo:       tipo as 'assinatura' | 'pedido',
+                record_id:  id,
+              }),
+            });
+          })
+          .catch(() => {})
+      );
+    }
+
     sessionStorage.removeItem('dsmatas_lead_id');
     sessionStorage.removeItem('dsmatas_assinatura_id');
 
-    Promise.allSettled(updates).finally(() => setDone(true));
-  }, [id, tipo, leadId]);
+    Promise.allSettled(tasks).finally(() => setDone(true));
+  }, [id, tipo, leadId, sessionId]);
 
   if (!done) {
     return (

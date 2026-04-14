@@ -23,6 +23,9 @@ export interface Cliente {
   birthdate?: string;
   preferenciaCafe: 'grao' | 'moido';
   tipoMoagem?: 'fino' | 'medio' | 'grosso' | 'extraGrosso';
+  stripeCardBrand?: string;
+  stripeCardLast4?: string;
+  stripeCardExpiry?: string;
   enderecos: Endereco[];
   assinaturas: Assinatura[];
   pedidos: Pedido[];
@@ -104,6 +107,9 @@ export type StatusAssinatura = 'ativa' | 'pendente' | 'inadimplente' | 'cancelad
 export interface Assinatura {
   id: string;
   clienteId: string;
+  clienteNome?: string;
+  clienteEmail?: string;
+  clienteTelefone?: string;
   planoId: string;
   plano: PlanoAssinatura;
   status: StatusAssinatura;

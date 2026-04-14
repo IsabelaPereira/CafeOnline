@@ -12,6 +12,9 @@ function mapCliente(r: any): Cliente {
     phone: r.phone ?? '', cpf: r.cpf ?? undefined, birthdate: r.birthdate ?? undefined,
     preferenciaCafe: r.preferencia_cafe as 'grao' | 'moido',
     tipoMoagem: r.tipo_moagem ?? undefined,
+    stripeCardBrand:  r.stripe_card_brand  ?? undefined,
+    stripeCardLast4:  r.stripe_card_last4  ?? undefined,
+    stripeCardExpiry: r.stripe_card_expiry ?? undefined,
     enderecos: (r.enderecos ?? []).map(mapEndereco),
     assinaturas: [], pedidos: [],
     createdAt: r.created_at,
@@ -30,10 +33,7 @@ async function fetchClienteComEnderecos(row: any): Promise<Cliente> {
     .eq('cliente_id', row.id)
     .order('padrao', { ascending: false });
 
-  // stripe_customer_id fica em campo separado — lido via coluna se migration já executada
-  const stripeId: string | null = (row as any).stripe_customer_id ?? null;
-
-  return mapCliente({ ...row, enderecos: enderecos ?? [], stripe_customer_id: stripeId });
+  return mapCliente({ ...row, enderecos: enderecos ?? [] });
 }
 
 export async function getClientes(): Promise<Cliente[]> {
@@ -54,18 +54,18 @@ export async function getClienteByUserId(userId: string): Promise<Cliente | null
     .single();
   if (error) return null;
 
-  // Tenta ler stripe_customer_id separadamente (só existe após migration 004)
-  let stripeCustomerId: string | null = null;
+  // Tenta ler colunas Stripe separadamente (existem após migrations 004/007)
+  let stripeExtra: Record<string, string | null> = {};
   try {
     const { data: extra } = await supabase
       .from('clientes')
-      .select('stripe_customer_id')
+      .select('stripe_customer_id, stripe_card_brand, stripe_card_last4, stripe_card_expiry')
       .eq('id', data.id)
       .single();
-    stripeCustomerId = (extra as any)?.stripe_customer_id ?? null;
-  } catch { /* coluna ainda não existe */ }
+    stripeExtra = (extra as any) ?? {};
+  } catch { /* colunas ainda não existem */ }
 
-  return fetchClienteComEnderecos({ ...data, stripe_customer_id: stripeCustomerId });
+  return fetchClienteComEnderecos({ ...data, ...stripeExtra });
 }
 
 export async function getCliente(id: string): Promise<Cliente | null> {

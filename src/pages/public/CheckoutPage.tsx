@@ -3,13 +3,14 @@ import { Link } from 'react-router-dom';
 import {
   ShoppingCart, MapPin, CreditCard, CheckCircle2,
   ChevronRight, Package, Minus, Plus, X, Lock,
-  QrCode, FileText, ArrowLeft
+  QrCode, FileText, ArrowLeft, Store
 } from 'lucide-react';
 import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { createPedido } from '../../services/pedidos.service';
 import { getClienteByUserId } from '../../services/clientes.service';
 import { createCheckoutSession } from '../../services/stripe.service';
+import { RETIRADA_OPCAO } from '../../services/frete.service';
 
 // ---- STEP INDICATOR ----
 function StepIndicator({ step }: { step: number }) {
@@ -270,30 +271,34 @@ interface EnderecoForm {
   estado: string;
 }
 
+const FRETE_OPCOES = [
+  RETIRADA_OPCAO,
+  { id: 'pac',   nome: 'PAC — Correios',   empresa: '7–12 dias úteis', preco: 18.9,  prazo: 7 },
+  { id: 'sedex', nome: 'SEDEX — Correios', empresa: '2–5 dias úteis',  preco: 34.9,  prazo: 5 },
+  { id: 'jadlog', nome: 'Jadlog',          empresa: '5–8 dias úteis',  preco: 22.5,  prazo: 5 },
+];
+
 function StepEntrega({
   onNext,
   onBack,
   endereco,
   setEndereco,
-  frete,
+  freteOpcaoId,
+  setFreteOpcaoId,
   setFrete,
 }: {
   onNext: () => void;
   onBack: () => void;
   endereco: EnderecoForm;
   setEndereco: (e: EnderecoForm) => void;
-  frete: number;
+  freteOpcaoId: string;
+  setFreteOpcaoId: (id: string) => void;
   setFrete: (f: number) => void;
 }) {
   const [cepLoading, setCepLoading] = useState(false);
   const [cepErro, setCepErro] = useState('');
-  const [freteOpcao, setFreteOpcao] = useState('');
 
-  const freteOpcoes = [
-    { id: 'pac', label: 'PAC — Correios', prazo: '7–12 dias úteis', valor: 18.9 },
-    { id: 'sedex', label: 'SEDEX — Correios', prazo: '2–5 dias úteis', valor: 34.9 },
-    { id: 'jadlog', label: 'Jadlog', prazo: '5–8 dias úteis', valor: 22.5 },
-  ];
+  const isRetirada = freteOpcaoId === 'retirada';
 
   const buscarCep = async () => {
     const cep = endereco.cep.replace(/\D/g, '');
@@ -321,18 +326,18 @@ function StepEntrega({
     }
   };
 
-  const selecionarFrete = (id: string, valor: number) => {
-    setFreteOpcao(id);
-    setFrete(valor);
+  const selecionarFrete = (id: string, preco: number) => {
+    setFreteOpcaoId(id);
+    setFrete(preco);
   };
 
   const formValido =
-    endereco.cep.replace(/\D/g, '').length === 8 &&
-    endereco.logradouro &&
-    endereco.numero &&
-    endereco.cidade &&
-    endereco.estado &&
-    freteOpcao !== '';
+    isRetirada ||
+    (endereco.cep.replace(/\D/g, '').length === 8 &&
+      !!endereco.logradouro &&
+      !!endereco.numero &&
+      !!endereco.cidade &&
+      !!endereco.estado);
 
   const field = (
     label: string,
@@ -352,68 +357,17 @@ function StepEntrega({
 
   return (
     <div>
-      <h2 className="font-serif text-2xl text-charcoal-700 mb-6">Endereço de entrega</h2>
+      <h2 className="font-serif text-2xl text-charcoal-700 mb-6">Entrega</h2>
 
-      <div className="bg-white rounded-sm border border-cream-200 p-6 mb-6 space-y-4">
-        {/* CEP */}
-        <div>
-          <label className="block text-xs font-medium text-charcoal-500 mb-1">CEP</label>
-          <div className="flex gap-2">
-            <input
-              value={endereco.cep}
-              onChange={e => setEndereco({ ...endereco, cep: e.target.value })}
-              onBlur={buscarCep}
-              placeholder="00000-000"
-              maxLength={9}
-              className="flex-1 px-4 py-2.5 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400"
-            />
-            <button
-              onClick={buscarCep}
-              disabled={cepLoading}
-              className="px-4 py-2.5 border border-cream-300 rounded-sm text-sm text-charcoal-600 hover:bg-cream-50 transition-colors disabled:opacity-50"
-            >
-              {cepLoading ? '...' : 'Buscar'}
-            </button>
-          </div>
-          {cepErro && <p className="text-xs text-red-500 mt-1">{cepErro}</p>}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="sm:col-span-2">
-            {field('Logradouro', 'logradouro', { placeholder: 'Rua, Avenida...' })}
-          </div>
-          {field('Número', 'numero', { placeholder: '100' })}
-        </div>
-        {field('Complemento', 'complemento', { placeholder: 'Apto, bloco (opcional)' })}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="sm:col-span-1">{field('Bairro', 'bairro')}</div>
-          <div className="sm:col-span-1">{field('Cidade', 'cidade')}</div>
-          <div>
-            <label className="block text-xs font-medium text-charcoal-500 mb-1">Estado</label>
-            <select
-              value={endereco.estado}
-              onChange={e => setEndereco({ ...endereco, estado: e.target.value })}
-              className="w-full px-4 py-2.5 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400 bg-white"
-            >
-              <option value="">UF</option>
-              {['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG',
-                'PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'].map(uf => (
-                <option key={uf} value={uf}>{uf}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Frete */}
+      {/* Opções de entrega */}
       <div className="bg-white rounded-sm border border-cream-200 p-6 mb-6">
-        <p className="text-sm font-medium text-charcoal-600 mb-4">Opção de frete</p>
+        <p className="text-sm font-medium text-charcoal-600 mb-4">Forma de entrega</p>
         <div className="space-y-3">
-          {freteOpcoes.map(opt => (
+          {FRETE_OPCOES.map(opt => (
             <label
               key={opt.id}
               className={`flex items-center justify-between p-4 rounded-sm border-2 cursor-pointer transition-colors ${
-                freteOpcao === opt.id
+                freteOpcaoId === opt.id
                   ? 'border-forest-500 bg-forest-50'
                   : 'border-cream-200 hover:border-cream-300'
               }`}
@@ -423,20 +377,86 @@ function StepEntrega({
                   type="radio"
                   name="frete"
                   value={opt.id}
-                  checked={freteOpcao === opt.id}
-                  onChange={() => selecionarFrete(opt.id, opt.valor)}
+                  checked={freteOpcaoId === opt.id}
+                  onChange={() => selecionarFrete(opt.id, opt.preco)}
                   className="text-forest-500"
                 />
-                <div>
-                  <p className="text-sm font-medium text-charcoal-700">{opt.label}</p>
-                  <p className="text-xs text-charcoal-400">{opt.prazo}</p>
+                <div className="flex items-center gap-2">
+                  {opt.id === 'retirada'
+                    ? <Store size={15} className="text-charcoal-400 shrink-0" />
+                    : <MapPin size={15} className="text-charcoal-400 shrink-0" />
+                  }
+                  <div>
+                    <p className="text-sm font-medium text-charcoal-700">{opt.nome}</p>
+                    <p className="text-xs text-charcoal-400">
+                      {opt.id === 'retirada' ? opt.empresa : opt.empresa}
+                    </p>
+                  </div>
                 </div>
               </div>
-              <span className="text-sm font-medium text-charcoal-700">R$ {opt.valor.toFixed(2)}</span>
+              {opt.preco === 0
+                ? <span className="text-sm font-medium text-forest-600">Grátis</span>
+                : <span className="text-sm font-medium text-charcoal-700">R$ {opt.preco.toFixed(2)}</span>
+              }
             </label>
           ))}
         </div>
       </div>
+
+      {/* Endereço — apenas para entrega */}
+      {!isRetirada && (
+        <div className="bg-white rounded-sm border border-cream-200 p-6 mb-6 space-y-4">
+          <p className="text-sm font-medium text-charcoal-600">Endereço de entrega</p>
+          {/* CEP */}
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 mb-1">CEP</label>
+            <div className="flex gap-2">
+              <input
+                value={endereco.cep}
+                onChange={e => setEndereco({ ...endereco, cep: e.target.value })}
+                onBlur={buscarCep}
+                placeholder="00000-000"
+                maxLength={9}
+                className="flex-1 px-4 py-2.5 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400"
+              />
+              <button
+                onClick={buscarCep}
+                disabled={cepLoading}
+                className="px-4 py-2.5 border border-cream-300 rounded-sm text-sm text-charcoal-600 hover:bg-cream-50 transition-colors disabled:opacity-50"
+              >
+                {cepLoading ? '...' : 'Buscar'}
+              </button>
+            </div>
+            {cepErro && <p className="text-xs text-red-500 mt-1">{cepErro}</p>}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-2">
+              {field('Logradouro', 'logradouro', { placeholder: 'Rua, Avenida...' })}
+            </div>
+            {field('Número', 'numero', { placeholder: '100' })}
+          </div>
+          {field('Complemento', 'complemento', { placeholder: 'Apto, bloco (opcional)' })}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-1">{field('Bairro', 'bairro')}</div>
+            <div className="sm:col-span-1">{field('Cidade', 'cidade')}</div>
+            <div>
+              <label className="block text-xs font-medium text-charcoal-500 mb-1">Estado</label>
+              <select
+                value={endereco.estado}
+                onChange={e => setEndereco({ ...endereco, estado: e.target.value })}
+                className="w-full px-4 py-2.5 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400 bg-white"
+              >
+                <option value="">UF</option>
+                {['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG',
+                  'PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'].map(uf => (
+                  <option key={uf} value={uf}>{uf}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3 justify-between">
         <button
@@ -654,10 +674,12 @@ function StepConfirmacao({
   metodo,
   endereco,
   pedidoNumero,
+  freteOpcaoId,
 }: {
   metodo: MetodoPagamento | '';
   endereco: EnderecoForm;
   pedidoNumero: string;
+  freteOpcaoId: string;
 }) {
   const numeroPedido = pedidoNumero || `DM-${Date.now().toString().slice(-6)}`;
 
@@ -677,13 +699,22 @@ function StepConfirmacao({
       <div className="bg-white rounded-sm border border-cream-200 p-6 text-left mb-8 max-w-sm mx-auto space-y-3">
         <div>
           <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-1">Entrega</p>
-          <p className="text-sm text-charcoal-600">
-            {endereco.logradouro}{endereco.numero ? `, ${endereco.numero}` : ''}
-            {endereco.complemento ? ` — ${endereco.complemento}` : ''}
-          </p>
-          <p className="text-sm text-charcoal-600">
-            {endereco.bairro && `${endereco.bairro}, `}{endereco.cidade}/{endereco.estado}
-          </p>
+          {freteOpcaoId === 'retirada' ? (
+            <>
+              <p className="text-sm font-medium text-charcoal-700">Retirada na cafeteria</p>
+              <p className="text-xs text-charcoal-400">R. Bernardo Monteiro, 150 — Centro, Contagem/MG</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-charcoal-600">
+                {endereco.logradouro}{endereco.numero ? `, ${endereco.numero}` : ''}
+                {endereco.complemento ? ` — ${endereco.complemento}` : ''}
+              </p>
+              <p className="text-sm text-charcoal-600">
+                {endereco.bairro && `${endereco.bairro}, `}{endereco.cidade}/{endereco.estado}
+              </p>
+            </>
+          )}
         </div>
         <div>
           <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-1">Pagamento</p>
@@ -736,6 +767,7 @@ export function CheckoutPage() {
     cidade: '',
     estado: '',
   });
+  const [freteOpcaoId, setFreteOpcaoId] = useState('retirada');
   const [frete, setFrete] = useState(0);
   const [metodo, setMetodo] = useState<MetodoPagamento | ''>('');
   const [cupomAplicado, setCupomAplicado] = useState('');
@@ -754,6 +786,11 @@ export function CheckoutPage() {
         clienteId = cliente?.id;
       }
       const totalFinal = Math.max(0, total - desconto + frete);
+
+      const enderecoEntrega = freteOpcaoId === 'retirada'
+        ? { id: '', cep: '32017170', logradouro: 'R. Bernardo Monteiro', numero: '150', complemento: 'Loja 1', bairro: 'Centro', cidade: 'Contagem', estado: 'MG', padrao: false }
+        : { id: '', cep: endereco.cep, logradouro: endereco.logradouro, numero: endereco.numero, complemento: endereco.complemento || undefined, bairro: endereco.bairro, cidade: endereco.cidade, estado: endereco.estado, padrao: false };
+
       const pedido = await createPedido({
         clienteId,
         itens: items.map(item => ({
@@ -767,17 +804,7 @@ export function CheckoutPage() {
         frete,
         desconto,
         total: totalFinal,
-        enderecoEntrega: {
-          id: '',
-          cep: endereco.cep,
-          logradouro: endereco.logradouro,
-          numero: endereco.numero,
-          complemento: endereco.complemento || undefined,
-          bairro: endereco.bairro,
-          cidade: endereco.cidade,
-          estado: endereco.estado,
-          padrao: false,
-        },
+        enderecoEntrega,
         formaPagamento: metodo === 'cartao' ? 'Cartão de crédito' : metodo === 'pix' ? 'PIX' : 'Boleto bancário',
         cupom: cupomAplicado || undefined,
       });
@@ -837,7 +864,8 @@ export function CheckoutPage() {
             onBack={() => setStep(1)}
             endereco={endereco}
             setEndereco={setEndereco}
-            frete={frete}
+            freteOpcaoId={freteOpcaoId}
+            setFreteOpcaoId={setFreteOpcaoId}
             setFrete={setFrete}
           />
         )}
@@ -851,7 +879,7 @@ export function CheckoutPage() {
           />
         )}
         {step === 4 && (
-          <StepConfirmacao metodo={metodo} endereco={endereco} pedidoNumero={pedidoNumero} />
+          <StepConfirmacao metodo={metodo} endereco={endereco} pedidoNumero={pedidoNumero} freteOpcaoId={freteOpcaoId} />
         )}
       </div>
     </div>

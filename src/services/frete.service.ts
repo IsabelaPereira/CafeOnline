@@ -5,8 +5,17 @@ export interface FreteOpcao {
   nome: string;
   empresa: string;
   preco: number;
-  prazo: number; // dias úteis estimados
+  prazo: number; // dias úteis estimados; 0 = retirada
 }
+
+/** Opção fixa de retirada na cafeteria — sempre exibida, sem custo. */
+export const RETIRADA_OPCAO: FreteOpcao = {
+  id: 'retirada',
+  nome: 'Retire na Cafeteria',
+  empresa: 'R. Bernardo Monteiro, 150 - Loja 1 - Centro, Contagem - MG, 32017-170',
+  preco: 0,
+  prazo: 0,
+};
 
 export interface EnderecoCep {
   logradouro: string;

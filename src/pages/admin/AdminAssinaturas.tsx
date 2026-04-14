@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Eye, RefreshCw, AlertTriangle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus } from 'lucide-react';
 import {
   Card, Badge, SearchBar, FilterBar, Select, Pagination,
-  Modal, Button, SectionHeader, StatCard, Tabs
+  Modal, Button, SectionHeader, StatCard, Tabs, Input
 } from '../../components/ui';
-import { getAssinaturas, getPlanos } from '../../services/assinaturas.service';
+import { getAssinaturas, getPlanos, updatePlano, createPlano } from '../../services/assinaturas.service';
+import { supabase } from '../../lib/supabase';
 import type { Assinatura, PlanoAssinatura } from '../../types';
 
 const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive'> = {
@@ -19,17 +20,107 @@ export function AdminAssinaturas() {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Assinatura | null>(null);
+  const [reprocessando, setReprocessando] = useState<string | null>(null);
+  const [linkPagamento, setLinkPagamento] = useState<string | null>(null);
+  const [editandoPlano, setEditandoPlano] = useState<PlanoAssinatura | null>(null);
+  const [criandoPlano, setCriandoPlano] = useState(false);
+  const [formPlano, setFormPlano] = useState({ nome: '', descricao: '', preco: '', beneficios: '' as string, ativo: true, destaque: false, ordem: 0 });
+  const [salvandoPlano, setSalvandoPlano] = useState(false);
   const perPage = 10;
+
+  function abrirEditarPlano(plano: PlanoAssinatura) {
+    setFormPlano({ nome: plano.nome, descricao: plano.descricao ?? '', preco: String(plano.preco), beneficios: plano.beneficios.join('\n'), ativo: plano.ativo, destaque: plano.destaque ?? false, ordem: plano.ordem });
+    setEditandoPlano(plano);
+  }
+
+  function abrirNovoPano() {
+    setFormPlano({ nome: '', descricao: '', preco: '', beneficios: '', ativo: true, destaque: false, ordem: planos.length + 1 });
+    setCriandoPlano(true);
+  }
+
+  function parsedFormPlano() {
+    return {
+      nome: formPlano.nome.trim(),
+      descricao: formPlano.descricao.trim(),
+      preco: parseFloat(formPlano.preco) || 0,
+      beneficios: formPlano.beneficios.split('\n').map(b => b.trim()).filter(Boolean),
+      ativo: formPlano.ativo,
+      destaque: formPlano.destaque,
+      ordem: formPlano.ordem,
+    };
+  }
+
+  async function handleSalvarPlano() {
+    if (!editandoPlano) return;
+    setSalvandoPlano(true);
+    try {
+      const patch = parsedFormPlano();
+      await updatePlano(editandoPlano.id, patch);
+      setPlanos(prev => prev.map(p => p.id === editandoPlano.id ? { ...p, ...patch } : p));
+      setEditandoPlano(null);
+    } catch {
+      alert('Erro ao salvar plano. Tente novamente.');
+    } finally {
+      setSalvandoPlano(false);
+    }
+  }
+
+  async function handleCriarPlano() {
+    setSalvandoPlano(true);
+    try {
+      const novo = await createPlano(parsedFormPlano());
+      setPlanos(prev => [...prev, novo]);
+      setCriandoPlano(false);
+    } catch {
+      alert('Erro ao criar plano. Tente novamente.');
+    } finally {
+      setSalvandoPlano(false);
+    }
+  }
+
+  async function handleReprocessar(assinaturaId: string) {
+    setReprocessando(assinaturaId);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token ?? supabaseKey;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/retry-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: supabaseKey,
+        },
+        body: JSON.stringify({ assinatura_id: assinaturaId }),
+      });
+      const json = await res.json();
+      if (json.url) {
+        setLinkPagamento(json.url);
+      } else {
+        alert(`Erro ao gerar link: ${json.error ?? 'Erro desconhecido'}`);
+      }
+    } catch (err) {
+      alert('Erro ao contatar o servidor. Tente novamente.');
+    } finally {
+      setReprocessando(null);
+    }
+  }
 
   useEffect(() => {
     getAssinaturas().then(setAssinaturas).catch(console.error);
     getPlanos().then(setPlanos).catch(console.error);
   }, []);
 
-  const filtered = assinaturas.filter(a =>
-    (search === '' || a.plano.nome.toLowerCase().includes(search.toLowerCase())) &&
-    (statusFilter === '' || a.status === statusFilter)
-  );
+  const filtered = assinaturas.filter(a => {
+    const termo = search.toLowerCase();
+    const matchSearch = search === ''
+      || (a.clienteNome ?? '').toLowerCase().includes(termo)
+      || (a.clienteEmail ?? '').toLowerCase().includes(termo)
+      || a.plano.nome.toLowerCase().includes(termo);
+    return matchSearch && (statusFilter === '' || a.status === statusFilter);
+  });
 
   const ativas = assinaturas.filter(a => a.status === 'ativa').length;
   const inadimplentes = assinaturas.filter(a => a.status === 'inadimplente').length;
@@ -96,7 +187,10 @@ export function AdminAssinaturas() {
               <tbody>
                 {filtered.slice((page - 1) * perPage, page * perPage).map(assin => (
                   <tr key={assin.id} className="border-t border-cream-100 hover:bg-cream-50 cursor-pointer" onClick={() => setSelected(assin)}>
-                    <td className="table-td font-medium text-charcoal-700">{assin.clienteId}</td>
+                    <td className="table-td">
+                      <p className="font-medium text-charcoal-700">{assin.clienteNome ?? '—'}</p>
+                      {assin.clienteEmail && <p className="text-xs text-charcoal-400">{assin.clienteEmail}</p>}
+                    </td>
                     <td className="table-td text-charcoal-600">{assin.plano.nome}</td>
                     <td className="table-td font-medium text-charcoal-700">R$ {assin.totalMensal.toFixed(2)}</td>
                     <td className="table-td text-charcoal-500">
@@ -120,8 +214,13 @@ export function AdminAssinaturas() {
                           <Eye size={15} />
                         </button>
                         {assin.status === 'inadimplente' && (
-                          <button className="p-1.5 text-charcoal-400 hover:text-orange-500 hover:bg-orange-50 rounded-sm transition-colors" title="Reprocessar pagamento">
-                            <RefreshCw size={15} />
+                          <button
+                            onClick={e => { e.stopPropagation(); handleReprocessar(assin.id); }}
+                            disabled={reprocessando === assin.id}
+                            className="p-1.5 text-charcoal-400 hover:text-orange-500 hover:bg-orange-50 rounded-sm transition-colors disabled:opacity-50"
+                            title="Reprocessar pagamento"
+                          >
+                            <RefreshCw size={15} className={reprocessando === assin.id ? 'animate-spin' : ''} />
                           </button>
                         )}
                       </div>
@@ -137,6 +236,12 @@ export function AdminAssinaturas() {
       )}
 
       {tab === 'planos' && (
+        <div className="space-y-4">
+        <div className="flex justify-end">
+          <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={abrirNovoPano}>
+            Novo plano
+          </Button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {planos.map(plano => (
             <Card key={plano.id}>
@@ -154,9 +259,10 @@ export function AdminAssinaturas() {
                   {assinaturas.filter(a => a.planoId === plano.id && a.status === 'ativa').length}
                 </span>
               </div>
-              <Button variant="ghost" size="sm" className="w-full">Editar plano</Button>
+              <Button variant="ghost" size="sm" className="w-full" onClick={() => abrirEditarPlano(plano)}>Editar plano</Button>
             </Card>
           ))}
+        </div>
         </div>
       )}
 
@@ -169,6 +275,187 @@ export function AdminAssinaturas() {
         </Card>
       )}
 
+      {/* Modal — editar plano */}
+      <Modal
+        open={!!editandoPlano}
+        onClose={() => setEditandoPlano(null)}
+        title="Editar Plano"
+      >
+        {editandoPlano && (
+          <div className="space-y-4">
+            <Input
+              label="Nome do plano *"
+              value={formPlano.nome}
+              onChange={e => setFormPlano(p => ({ ...p, nome: e.target.value }))}
+            />
+            <Input
+              label="Descrição"
+              value={formPlano.descricao}
+              onChange={e => setFormPlano(p => ({ ...p, descricao: e.target.value }))}
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Preço mensal (R$) *"
+                type="number"
+                value={formPlano.preco}
+                onChange={e => setFormPlano(p => ({ ...p, preco: e.target.value }))}
+              />
+              <Input
+                label="Ordem de exibição"
+                type="number"
+                value={String(formPlano.ordem)}
+                onChange={e => setFormPlano(p => ({ ...p, ordem: parseInt(e.target.value) || 0 }))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-charcoal-600 mb-1.5">
+                Benefícios <span className="text-charcoal-400 font-normal">(um por linha)</span>
+              </label>
+              <textarea
+                rows={4}
+                value={formPlano.beneficios}
+                onChange={e => setFormPlano(p => ({ ...p, beneficios: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 placeholder-charcoal-300 focus:outline-none focus:ring-1 focus:ring-forest-400 focus:border-forest-400 resize-none"
+                placeholder="Ex: 2 cafés especiais por mês&#10;Frete grátis&#10;Acesso ao conteúdo exclusivo"
+              />
+            </div>
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formPlano.ativo}
+                  onChange={e => setFormPlano(p => ({ ...p, ativo: e.target.checked }))}
+                  className="w-4 h-4 accent-forest-500"
+                />
+                <span className="text-sm text-charcoal-600">Plano ativo</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formPlano.destaque}
+                  onChange={e => setFormPlano(p => ({ ...p, destaque: e.target.checked }))}
+                  className="w-4 h-4 accent-forest-500"
+                />
+                <span className="text-sm text-charcoal-600">Destaque (recomendado)</span>
+              </label>
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+              <Button variant="ghost" onClick={() => setEditandoPlano(null)}>Cancelar</Button>
+              <Button variant="primary" loading={salvandoPlano} onClick={handleSalvarPlano}>
+                Salvar alterações
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal — criar plano */}
+      <Modal
+        open={criandoPlano}
+        onClose={() => setCriandoPlano(false)}
+        title="Novo Plano"
+      >
+        <div className="space-y-4">
+          <Input
+            label="Nome do plano *"
+            value={formPlano.nome}
+            onChange={e => setFormPlano(p => ({ ...p, nome: e.target.value }))}
+            placeholder="Ex: Cafés da Casa"
+          />
+          <Input
+            label="Descrição"
+            value={formPlano.descricao}
+            onChange={e => setFormPlano(p => ({ ...p, descricao: e.target.value }))}
+            placeholder="Breve descrição exibida na página de planos"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Preço mensal (R$) *"
+              type="number"
+              value={formPlano.preco}
+              onChange={e => setFormPlano(p => ({ ...p, preco: e.target.value }))}
+              placeholder="0.00"
+            />
+            <Input
+              label="Ordem de exibição"
+              type="number"
+              value={String(formPlano.ordem)}
+              onChange={e => setFormPlano(p => ({ ...p, ordem: parseInt(e.target.value) || 0 }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-charcoal-600 mb-1.5">
+              Benefícios <span className="text-charcoal-400 font-normal">(um por linha)</span>
+            </label>
+            <textarea
+              rows={4}
+              value={formPlano.beneficios}
+              onChange={e => setFormPlano(p => ({ ...p, beneficios: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 placeholder-charcoal-300 focus:outline-none focus:ring-1 focus:ring-forest-400 focus:border-forest-400 resize-none"
+              placeholder={'2 cafés especiais por mês\nFrete grátis\nAcesso ao conteúdo exclusivo'}
+            />
+          </div>
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formPlano.ativo}
+                onChange={e => setFormPlano(p => ({ ...p, ativo: e.target.checked }))}
+                className="w-4 h-4 accent-forest-500"
+              />
+              <span className="text-sm text-charcoal-600">Plano ativo</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formPlano.destaque}
+                onChange={e => setFormPlano(p => ({ ...p, destaque: e.target.checked }))}
+                className="w-4 h-4 accent-forest-500"
+              />
+              <span className="text-sm text-charcoal-600">Destaque (recomendado)</span>
+            </label>
+          </div>
+          <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+            <Button variant="ghost" onClick={() => setCriandoPlano(false)}>Cancelar</Button>
+            <Button variant="primary" loading={salvandoPlano} icon={<Plus size={14} />} onClick={handleCriarPlano}>
+              Criar plano
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal — link de pagamento gerado */}
+      <Modal
+        open={!!linkPagamento}
+        onClose={() => setLinkPagamento(null)}
+        title="Link de Pagamento Gerado"
+      >
+        <p className="text-sm text-charcoal-600 mb-3">
+          Envie este link ao cliente para que ele possa regularizar o pagamento:
+        </p>
+        <div className="flex items-center gap-2 p-3 bg-cream-50 border border-cream-200 rounded-sm text-sm font-mono text-charcoal-700 break-all">
+          {linkPagamento}
+        </div>
+        <div className="flex gap-3 mt-4">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Copy size={14} />}
+            onClick={() => { navigator.clipboard.writeText(linkPagamento ?? ''); }}
+          >
+            Copiar link
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<ExternalLink size={14} />}
+            onClick={() => window.open(linkPagamento ?? '', '_blank')}
+          >
+            Abrir link
+          </Button>
+        </div>
+      </Modal>
+
       {/* Detail Modal */}
       <Modal
         open={!!selected}
@@ -180,6 +467,9 @@ export function AdminAssinaturas() {
           <div className="space-y-5">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {[
+                { label: 'Cliente', value: selected.clienteNome ?? '—' },
+                { label: 'E-mail', value: selected.clienteEmail ?? '—' },
+                { label: 'Telefone', value: selected.clienteTelefone ?? '—' },
                 { label: 'Plano', value: selected.plano.nome },
                 { label: 'Status', value: <Badge variant={statusVariant[selected.status]}>{selected.status}</Badge> },
                 { label: 'Início', value: new Date(selected.dataInicio).toLocaleDateString('pt-BR') },
@@ -216,8 +506,13 @@ export function AdminAssinaturas() {
               <Button variant="secondary" size="sm">Trocar plano</Button>
               <Button variant="secondary" size="sm">Alterar endereço</Button>
               {selected.status === 'inadimplente' && (
-                <Button variant="primary" size="sm">
-                  <RefreshCw size={14} />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={reprocessando === selected.id}
+                  onClick={() => handleReprocessar(selected.id)}
+                  icon={<RefreshCw size={14} />}
+                >
                   Reprocessar pagamento
                 </Button>
               )}

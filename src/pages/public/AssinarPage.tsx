@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Check, ChevronRight, Coffee, Package, CreditCard, Lock,
-  Truck, MapPin, Eye, EyeOff, Plus, Home,
+  Truck, MapPin, Eye, EyeOff, Plus, Home, Store,
 } from 'lucide-react';
 import { Input, Select, Button, Alert } from '../../components/ui';
 import { usePlanos } from '../../hooks/useAssinaturas';
@@ -10,7 +10,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { createCheckoutSession } from '../../services/stripe.service';
 import { upsertLeadByEmail, updateLeadEtapa } from '../../services/leads.service';
-import { calcularFrete, buscarEnderecoCep } from '../../services/frete.service';
+import { calcularFrete, buscarEnderecoCep, RETIRADA_OPCAO } from '../../services/frete.service';
 import { getClienteByUserId, updateClienteStripeCustomerId } from '../../services/clientes.service';
 import type { Endereco } from '../../types';
 import type { FreteOpcao } from '../../services/frete.service';
@@ -104,8 +104,8 @@ export function AssinarPage() {
     cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '',
   });
   const [cepLoading,   setCepLoading]   = useState(false);
-  const [freteOpcoes,  setFreteOpcoes]  = useState<FreteOpcao[]>([]);
-  const [freteId,      setFreteId]      = useState<string | null>(null);
+  const [freteOpcoes,  setFreteOpcoes]  = useState<FreteOpcao[]>([RETIRADA_OPCAO]);
+  const [freteId,      setFreteId]      = useState<string | null>('retirada');
   const [freteLoading, setFreteLoading] = useState(false);
 
   // Evita duplicatas em retentativas de pagamento
@@ -119,9 +119,11 @@ export function AssinarPage() {
     if (!planoId && planos.length > 0) setPlanoId(planos[0].id);
   }, [planos, planoId]);
 
-  // ── Pre-fill existing user data ────────────────────────────────────────────
+  // ── Pre-fill existing user data (só quando não há e-mail digitado manualmente) ──
   useEffect(() => {
+    // Não interfere se o usuário já digitou um e-mail diferente da conta logada
     if (!user || userId) return;
+    if (email && email !== user.email) return;
     setUserId(user.id);
     setEmail(user.email);
     setEmailExists(true);
@@ -237,7 +239,7 @@ export function AssinarPage() {
       setFreteId(null);
       calcularFrete(cepLimpo)
         .then(opcoes => {
-          setFreteOpcoes(opcoes);
+          setFreteOpcoes([RETIRADA_OPCAO, ...opcoes]);
           if (opcoes.length > 0) setFreteId(opcoes[0].id);
         })
         .catch(() => {})
@@ -291,8 +293,14 @@ export function AssinarPage() {
       return;
     }
 
-    // Novo usuário — avança para dados
+    // Novo usuário — reseta qualquer dado herdado de sessão anterior e avança
     setUserId(signUpData.user?.id ?? null);
+    setClienteId(null);
+    setStripeCustomerId(null);
+    setEnderecosSalvos([]);
+    setEnderecoSelecionadoId(null);
+    setDados({ nome: '', celular: '', cpf: '', senhaNovo: '', confirmarSenha: '' });
+    setPreferencias({ tipo: 'grao', moagem: 'medio' });
     setIsNewUser(true);
     await salvarLead('checkout_iniciado');
     setErrors({});
@@ -453,7 +461,7 @@ export function AssinarPage() {
     setFreteLoading(true);
     try {
       const opcoes = await calcularFrete(cepLimpo);
-      setFreteOpcoes(opcoes);
+      setFreteOpcoes([RETIRADA_OPCAO, ...opcoes]);
       if (opcoes.length > 0) setFreteId(opcoes[0].id);
     } catch (e: unknown) {
       err('frete', e instanceof Error ? e.message : 'Erro ao calcular frete. Tente novamente.');
@@ -465,14 +473,18 @@ export function AssinarPage() {
   // ENDERECO → PAGAMENTO
   const handleEndereco = () => {
     const errs: Record<string, string> = {};
-    if (!endereco.cep.trim())        errs.cep        = 'Informe seu CEP.';
-    if (!endereco.logradouro.trim()) errs.logradouro  = 'Informe o logradouro.';
-    if (!endereco.numero.trim())     errs.numero      = 'Informe o número.';
-    if (!endereco.bairro.trim())     errs.bairro      = 'Informe o bairro.';
-    if (!endereco.cidade.trim())     errs.cidade      = 'Informe a cidade.';
-    if (!endereco.estado.trim())     errs.estado      = 'Selecione o estado.';
-    if (freteOpcoes.length === 0)    errs.frete       = 'Clique em "Calcular frete" antes de continuar.';
-    else if (!freteId)               errs.frete       = 'Selecione uma opção de frete para continuar.';
+    const retirada = freteId === 'retirada';
+    // Endereço só é obrigatório quando não é retirada e não há endereço salvo selecionado
+    if (!retirada && (!enderecoSelecionadoId || enderecoSelecionadoId === 'novo')) {
+      if (!endereco.cep.trim())        errs.cep        = 'Informe seu CEP.';
+      if (!endereco.logradouro.trim()) errs.logradouro  = 'Informe o logradouro.';
+      if (!endereco.numero.trim())     errs.numero      = 'Informe o número.';
+      if (!endereco.bairro.trim())     errs.bairro      = 'Informe o bairro.';
+      if (!endereco.cidade.trim())     errs.cidade      = 'Informe a cidade.';
+      if (!endereco.estado.trim())     errs.estado      = 'Selecione o estado.';
+      if (freteOpcoes.length <= 1)     errs.frete       = 'Clique em "Calcular frete" antes de continuar.';
+    }
+    if (!freteId) errs.frete = 'Selecione uma opção de entrega para continuar.';
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
     setStep('pagamento');
@@ -491,24 +503,29 @@ export function AssinarPage() {
       const lId = leadId ?? await salvarLead('pagamento_iniciado');
 
       if (!assId) {
-        // 1. Criar endereço (apenas se for novo; reutiliza se for salvo)
-        let enderecoId: string;
-        if (enderecoSelecionadoId && enderecoSelecionadoId !== 'novo') {
+        // 1. Resolver endereço (retirada = sem endereço de entrega)
+        let enderecoId: string | null = null;
+        if (freteId !== 'retirada') {
+          if (enderecoSelecionadoId && enderecoSelecionadoId !== 'novo') {
+            enderecoId = enderecoSelecionadoId;
+          } else {
+            const { data: endRow, error: eErr } = await supabase.from('enderecos').insert({
+              cliente_id:  clienteId,
+              cep:         endereco.cep.replace(/\D/g, ''),
+              logradouro:  endereco.logradouro,
+              numero:      endereco.numero,
+              complemento: endereco.complemento || null,
+              bairro:      endereco.bairro,
+              cidade:      endereco.cidade,
+              estado:      endereco.estado,
+              padrao:      enderecosSalvos.length === 0,
+            }).select('id').single();
+            if (eErr) throw new Error(`Erro ao salvar endereço: ${eErr.message}`);
+            enderecoId = endRow.id;
+          }
+        } else if (enderecoSelecionadoId && enderecoSelecionadoId !== 'novo') {
+          // Retirada mas tem endereço salvo → vincular mesmo assim
           enderecoId = enderecoSelecionadoId;
-        } else {
-          const { data: endRow, error: eErr } = await supabase.from('enderecos').insert({
-            cliente_id:  clienteId,
-            cep:         endereco.cep.replace(/\D/g, ''),
-            logradouro:  endereco.logradouro,
-            numero:      endereco.numero,
-            complemento: endereco.complemento || null,
-            bairro:      endereco.bairro,
-            cidade:      endereco.cidade,
-            estado:      endereco.estado,
-            padrao:      enderecosSalvos.length === 0,
-          }).select('id').single();
-          if (eErr) throw new Error(`Erro ao salvar endereço: ${eErr.message}`);
-          enderecoId = endRow.id;
         }
 
         // 2. Criar assinatura
@@ -828,7 +845,7 @@ export function AssinarPage() {
                     onClick={() => {
                       setEnderecoSelecionadoId('novo');
                       setEndereco({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '' });
-                      setFreteOpcoes([]); setFreteId(null);
+                      setFreteOpcoes([RETIRADA_OPCAO]); setFreteId('retirada');
                     }}
                     className={`w-full flex items-center gap-3 p-4 rounded-sm border-2 text-left transition-all ${
                       enderecoSelecionadoId === 'novo'
@@ -842,8 +859,8 @@ export function AssinarPage() {
                 </div>
               )}
 
-              {/* Formulário de novo endereço */}
-              {(enderecoSelecionadoId === 'novo' || enderecosSalvos.length === 0) && (
+              {/* Formulário de novo endereço — oculto na retirada */}
+              {freteId !== 'retirada' && (enderecoSelecionadoId === 'novo' || enderecosSalvos.length === 0) && (
                 <div className="space-y-4 pt-2">
                   <div className="grid grid-cols-2 gap-5">
                     <div className="relative">
@@ -922,13 +939,17 @@ export function AssinarPage() {
                         onChange={() => setFreteId(op.id)}
                         className="accent-forest-500"
                       />
-                      <MapPin size={16} className="text-charcoal-400 shrink-0" />
+                      {op.id === 'retirada'
+                        ? <Store size={16} className="text-forest-500 shrink-0" />
+                        : <MapPin size={16} className="text-charcoal-400 shrink-0" />}
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-charcoal-700">{op.empresa} — {op.nome}</p>
-                        <p className="text-xs text-charcoal-400">Prazo estimado: {op.prazo} dias úteis</p>
+                        <p className="text-sm font-medium text-charcoal-700">{op.nome}</p>
+                        <p className="text-xs text-charcoal-400">
+                          {op.id === 'retirada' ? op.empresa : `${op.empresa} · Prazo estimado: ${op.prazo} dias úteis`}
+                        </p>
                       </div>
-                      <span className="text-sm font-medium text-charcoal-700">
-                        R$ {op.preco.toFixed(2).replace('.', ',')}
+                      <span className={`text-sm font-medium ${op.id === 'retirada' ? 'text-forest-600' : 'text-charcoal-700'}`}>
+                        {op.preco === 0 ? 'Grátis' : `R$ ${op.preco.toFixed(2).replace('.', ',')}`}
                       </span>
                     </label>
                   ))}
@@ -953,8 +974,12 @@ export function AssinarPage() {
                 </div>
                 {freteSelecionado && (
                   <div className="flex justify-between">
-                    <span className="text-charcoal-500">Frete — {freteSelecionado.empresa}</span>
-                    <span className="text-charcoal-700">R$ {freteSelecionado.preco.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-charcoal-500">
+                      {freteSelecionado.id === 'retirada' ? 'Retirada na cafeteria' : `Frete — ${freteSelecionado.empresa}`}
+                    </span>
+                    <span className={freteSelecionado.id === 'retirada' ? 'text-forest-600 font-medium' : 'text-charcoal-700'}>
+                      {freteSelecionado.preco === 0 ? 'Grátis' : `R$ ${freteSelecionado.preco.toFixed(2).replace('.', ',')}`}
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between pt-2 border-t border-cream-200">
@@ -964,7 +989,9 @@ export function AssinarPage() {
                   </span>
                 </div>
                 <p className="text-xs text-charcoal-400 pt-1">
-                  Entrega em {freteSelecionado?.prazo ?? '—'} dias úteis · {endereco.cidade}/{endereco.estado}
+                  {freteSelecionado?.id === 'retirada'
+                    ? `Retirada em: ${RETIRADA_OPCAO.empresa}`
+                    : `Entrega em ${freteSelecionado?.prazo ?? '—'} dias úteis · ${endereco.cidade}/${endereco.estado}`}
                 </p>
               </div>
 
@@ -976,7 +1003,7 @@ export function AssinarPage() {
 
               <Button variant="primary" size="lg" loading={loading} onClick={handlePagar} className="w-full">
                 <CreditCard size={18} />
-                Pagar R$ {((planoObj?.preco ?? 0) + (freteSelecionado?.preco ?? 0)).toFixed(2).replace('.', ',')} com Stripe
+                {freteSelecionado?.id === 'retirada' ? 'Assinar e pagar' : 'Pagar'} R$ {((planoObj?.preco ?? 0) + (freteSelecionado?.preco ?? 0)).toFixed(2).replace('.', ',')} com Stripe
               </Button>
 
               <p className="text-xs text-charcoal-400 flex items-center justify-center gap-1.5">
