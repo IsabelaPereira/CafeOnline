@@ -1,52 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Check, ChevronRight, Coffee, Package, CreditCard, ArrowRight } from 'lucide-react';
+import {
+  Check, ChevronRight, Coffee, Package, CreditCard, Lock,
+  Truck, MapPin, Eye, EyeOff, Plus, Home,
+} from 'lucide-react';
 import { Input, Select, Button, Alert } from '../../components/ui';
 import { usePlanos } from '../../hooks/useAssinaturas';
-import { createLead } from '../../services/leads.service';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 import { createCheckoutSession } from '../../services/stripe.service';
+import { upsertLeadByEmail, updateLeadEtapa } from '../../services/leads.service';
+import { calcularFrete, buscarEnderecoCep } from '../../services/frete.service';
+import { getClienteByUserId, updateClienteStripeCustomerId } from '../../services/clientes.service';
+import type { Endereco } from '../../types';
+import type { FreteOpcao } from '../../services/frete.service';
 
-type Step = 'contato' | 'dados' | 'endereco' | 'preferencias' | 'plano' | 'pagamento' | 'confirmado';
+// ─── Types ────────────────────────────────────────────────────────────────────
+type FlowStep = 'plano' | 'email' | 'dados' | 'preferencias' | 'endereco' | 'pagamento';
 
-const stepLabels: Record<Step, string> = {
-  contato: 'Contato',
-  dados: 'Dados pessoais',
-  endereco: 'Endereço',
-  preferencias: 'Preferências',
-  plano: 'Plano',
-  pagamento: 'Pagamento',
-  confirmado: 'Confirmado',
+const STEPS: FlowStep[] = ['plano', 'email', 'dados', 'preferencias', 'endereco', 'pagamento'];
+const STEP_LABELS: Record<FlowStep, string> = {
+  plano: 'Plano', email: 'Contato', dados: 'Dados',
+  preferencias: 'Preferências', endereco: 'Endereço', pagamento: 'Pagamento',
 };
 
-const stepOrder: Step[] = ['contato', 'dados', 'endereco', 'preferencias', 'plano', 'pagamento', 'confirmado'];
-
-function StepIndicator({ current }: { current: Step }) {
-  const currentIdx = stepOrder.indexOf(current);
-  const visibleSteps = stepOrder.filter(s => s !== 'confirmado');
+// ─── Step Indicator ───────────────────────────────────────────────────────────
+function StepIndicator({ current, skipped }: { current: FlowStep; skipped: Set<FlowStep> }) {
+  const currentIdx = STEPS.indexOf(current);
   return (
-    <div className="flex items-center justify-center gap-2 mb-10 flex-wrap">
-      {visibleSteps.map((step, i) => {
-        const idx = stepOrder.indexOf(step);
-        const done = idx < currentIdx;
+    <div className="flex items-center justify-center gap-1.5 mb-10 flex-wrap">
+      {STEPS.map((step, i) => {
+        const idx   = STEPS.indexOf(step);
+        const done  = idx < currentIdx || skipped.has(step);
         const active = idx === currentIdx;
         return (
           <React.Fragment key={step}>
             {i > 0 && (
-              <div className={`h-px w-8 ${done || active ? 'bg-forest-400' : 'bg-cream-300'}`} />
+              <div className={`h-px w-6 ${done || active ? 'bg-forest-400' : 'bg-cream-300'}`} />
             )}
-            <div className={`flex items-center gap-1.5`}>
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
-                done
-                  ? 'bg-forest-500 text-white'
-                  : active
-                    ? 'bg-earth-400 text-white'
-                    : 'bg-cream-200 text-charcoal-400'
+            <div className="flex items-center gap-1">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
+                done     ? 'bg-forest-500 text-white'
+                : active ? 'bg-earth-400 text-white'
+                         : 'bg-cream-200 text-charcoal-400'
               }`}>
-                {done ? <Check size={12} /> : i + 1}
+                {done ? <Check size={11} /> : i + 1}
               </div>
               <span className={`hidden sm:block text-xs ${active ? 'text-charcoal-700 font-medium' : 'text-charcoal-400'}`}>
-                {stepLabels[step]}
+                {STEP_LABELS[step]}
               </span>
             </div>
           </React.Fragment>
@@ -56,259 +57,514 @@ function StepIndicator({ current }: { current: Step }) {
   );
 }
 
+// ─── Main Component ───────────────────────────────────────────────────────────
 export function AssinarPage() {
   const [searchParams] = useSearchParams();
-  const planoInicial = searchParams.get('plano') || '';
+  const planoInicial = searchParams.get('plano') ?? '';
+  const cancelado    = searchParams.get('cancelado') === 'true';
+
   const { data: planos } = usePlanos();
+  const { user } = useAuth();
 
-  const [step, setStep] = useState<Step>('contato');
+  // ── Core state ─────────────────────────────────────────────────────────────
+  const [step,    setStep]    = useState<FlowStep>(planoInicial ? 'email' : 'plano');
+  const [skipped, setSkipped] = useState<Set<FlowStep>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [leadSalvo, setLeadSalvo] = useState(false);
+  const [errors,  setErrors]  = useState<Record<string, string>>({});
+  const [alerta,  setAlerta]  = useState('');
 
-  const [contato, setContato] = useState({ email: '', telefone: '', senha: '' });
-  const [dados, setDados] = useState({ nome: '', cpf: '', nascimento: '' });
+  // ── Plan ───────────────────────────────────────────────────────────────────
+  const [planoId, setPlanoId] = useState(planoInicial);
+
+  // ── Auth / identity ────────────────────────────────────────────────────────
+  const [email,         setEmail]         = useState('');
+  const [emailChecking, setEmailChecking] = useState(false);
+  const [emailExists,   setEmailExists]   = useState(false);
+  const [senha,         setSenha]         = useState('');
+  const [senhaVisivel,  setSenhaVisivel]  = useState(false);
+  const [userId,        setUserId]        = useState<string | null>(null);
+  const [clienteId,     setClienteId]     = useState<string | null>(null);
+  const [leadId,        setLeadId]        = useState<string | null>(null);
+  const [isNewUser,     setIsNewUser]     = useState(true);
+  const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
+
+  // ── Dados (step 3) ─────────────────────────────────────────────────────────
+  const [dados, setDados] = useState({ nome: '', celular: '', cpf: '', senhaNovo: '', confirmarSenha: '' });
+  const [senhaNovVisivel, setSenhaNovVisivel] = useState(false);
+
+  // ── Preferências (step 4) ──────────────────────────────────────────────────
+  const [preferencias, setPreferencias] = useState<{ tipo: 'grao' | 'moido'; moagem: string }>({
+    tipo: 'grao', moagem: 'medio',
+  });
+
+  // ── Endereço + frete (step 5) ──────────────────────────────────────────────
+  const [enderecosSalvos,      setEnderecosSalvos]      = useState<Endereco[]>([]);
+  const [enderecoSelecionadoId, setEnderecoSelecionadoId] = useState<string | 'novo' | null>(null);
   const [endereco, setEndereco] = useState({
-    cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: ''
+    cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '',
   });
-  const [preferencias, setPreferencias] = useState({
-    tipo: 'grao' as 'grao' | 'moido',
-    moagem: 'medio',
-  });
-  const [planoSelecionado, setPlanoSelecionado] = useState(planoInicial);
+  const [cepLoading,   setCepLoading]   = useState(false);
+  const [freteOpcoes,  setFreteOpcoes]  = useState<FreteOpcao[]>([]);
+  const [freteId,      setFreteId]      = useState<string | null>(null);
+  const [freteLoading, setFreteLoading] = useState(false);
 
-  // Auto-seleciona o primeiro plano quando a lista carrega e nenhum foi pré-selecionado
+  // Evita duplicatas em retentativas de pagamento
+  const [assinaturaId, setAssinaturaId] = useState<string | null>(null);
+
+  const planoObj         = planos.find(p => p.id === planoId);
+  const freteSelecionado = freteOpcoes.find(f => f.id === freteId);
+
+  // ── Auto-select first plan ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!planoSelecionado && planos.length > 0) {
-      setPlanoSelecionado(planos[0].id);
-    }
-  }, [planos, planoSelecionado]);
+    if (!planoId && planos.length > 0) setPlanoId(planos[0].id);
+  }, [planos, planoId]);
 
-  const [pagamento, setPagamento] = useState({
-    numero: '', validade: '', cvv: '', nome: '',
-  });
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [erroFinal, setErroFinal] = useState('');
-  const [userId, setUserId] = useState<string | null>(null); // preenchido no passo 1
+  // ── Pre-fill existing user data ────────────────────────────────────────────
+  useEffect(() => {
+    if (!user || userId) return;
+    setUserId(user.id);
+    setEmail(user.email);
+    setEmailExists(true);
+    setIsNewUser(false);
 
-  const planoObj = planos.find(p => p.id === planoSelecionado);
-  const freteEstimado = 18.90;
+    getClienteByUserId(user.id).then(cliente => {
+      if (!cliente) return;
+      setClienteId(cliente.id);
+      setStripeCustomerId((cliente as any).stripe_customer_id ?? null);
 
-  const salvarLead = async () => {
-    if (!leadSalvo && contato.email && contato.telefone) {
-      try {
-        await createLead({
-          nome: dados.nome || contato.email.split('@')[0],
-          email: contato.email,
-          telefone: contato.telefone,
-          origem: 'checkout',
-          planoDesejado: planoSelecionado || undefined,
+      // Pre-fill dados
+      setDados(d => ({
+        ...d,
+        nome:    user.name ?? '',
+        celular: cliente.phone ?? '',
+        cpf:     cliente.cpf ?? '',
+      }));
+
+      // Pre-fill preferências salvas
+      if (cliente.preferenciaCafe) {
+        setPreferencias({
+          tipo:    cliente.preferenciaCafe,
+          moagem:  cliente.tipoMoagem ?? 'medio',
         });
-      } catch {
-        // falha silenciosa — não bloquear o fluxo do usuário
       }
-      setLeadSalvo(true);
+
+      // Carregar endereços salvos
+      if (cliente.enderecos?.length > 0) {
+        setEnderecosSalvos(cliente.enderecos);
+        // Seleciona o endereço padrão por default
+        const padrao = cliente.enderecos.find(e => e.padrao) ?? cliente.enderecos[0];
+        selecionarEnderecoSalvo(padrao, cliente.enderecos);
+      }
+
+      // Navegar para o passo correto
+      const temDados = !!(user.name && user.name !== user.email?.split('@')[0] && cliente.phone);
+      if (temDados && planoId) {
+        skipTo('preferencias', new Set<FlowStep>(['email', 'dados']));
+      } else if (planoId) {
+        skipTo('dados', new Set<FlowStep>(['email']));
+      }
+    }).catch(() => {});
+  }, [user]);
+
+  // ── Handle Stripe cancel return ────────────────────────────────────────────
+  useEffect(() => {
+    if (!cancelado) return;
+    const storedLead = sessionStorage.getItem('dsmatas_lead_id');
+    if (storedLead) {
+      updateLeadEtapa(storedLead, 'pagamento_pendente').catch(() => {});
+      sessionStorage.removeItem('dsmatas_lead_id');
+      sessionStorage.removeItem('dsmatas_assinatura_id');
     }
-  };
+    setAlerta('Seu pagamento não foi concluído. Você pode tentar novamente quando quiser.');
+    setStep('pagamento');
+  }, [cancelado]);
 
-  const nextStep = async () => {
-    setLoading(true);
-    setErrors({});
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function skipTo(target: FlowStep, toSkip: Set<FlowStep>) {
+    setSkipped(toSkip);
+    setStep(target);
+  }
 
-    if (step === 'contato') {
-      const errs: Record<string, string> = {};
-      if (!contato.email)    errs.email    = 'E-mail obrigatório';
-      if (!contato.telefone) errs.telefone = 'Telefone obrigatório';
-      if (!contato.senha || contato.senha.length < 6) errs.senha = 'Senha mínima de 6 caracteres';
-      if (Object.keys(errs).length) { setErrors(errs); setLoading(false); return; }
-
-      // Verificar / criar conta já no passo 1
-      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-        email: contato.email,
-        password: contato.senha,
-        options: { data: { name: contato.email.split('@')[0] } },
+  async function salvarLead(
+    etapa: Parameters<typeof upsertLeadByEmail>[0]['etapa'],
+    extra?: { nome?: string; telefone?: string },
+  ) {
+    try {
+      const id = await upsertLeadByEmail({
+        email, etapa,
+        nome:          extra?.nome,
+        telefone:      extra?.telefone,
+        origem:        'checkout',
+        interesse:     'Clube de assinatura',
+        planoDesejado: planoId || undefined,
       });
+      setLeadId(id);
+      return id;
+    } catch { return null; }
+  }
 
-      if (signUpErr?.code === 'user_already_exists' || signUpErr?.message?.includes('already registered')) {
-        // Conta existe — tentar login com a senha informada
-        const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
-          email: contato.email,
-          password: contato.senha,
-        });
-        if (loginErr) {
-          setErrors({ email: 'Este e-mail já está cadastrado. Verifique a senha ou acesse via "Entrar".' });
-          setLoading(false);
-          return;
-        }
-        setUserId(loginData.user?.id ?? null);
-      } else if (signUpErr) {
-        setErrors({ email: signUpErr.message });
-        setLoading(false);
-        return;
-      } else {
-        setUserId(signUpData.user?.id ?? null);
-      }
+  function err(field: string, msg: string) {
+    setErrors(e => ({ ...e, [field]: msg }));
+  }
 
-      await salvarLead();
+  /** Preenche o formulário e calcula o frete a partir de um endereço salvo */
+  function selecionarEnderecoSalvo(end: Endereco, lista?: Endereco[]) {
+    const list = lista ?? enderecosSalvos;
+    setEnderecoSelecionadoId(end.id);
+    setEndereco({
+      cep:         end.cep,
+      logradouro:  end.logradouro,
+      numero:      end.numero,
+      complemento: end.complemento ?? '',
+      bairro:      end.bairro,
+      cidade:      end.cidade,
+      estado:      end.estado,
+    });
+    // Calcula frete automaticamente
+    const cepLimpo = end.cep.replace(/\D/g, '');
+    if (cepLimpo.length === 8) {
+      setFreteLoading(true);
+      setFreteOpcoes([]);
+      setFreteId(null);
+      calcularFrete(cepLimpo)
+        .then(opcoes => {
+          setFreteOpcoes(opcoes);
+          if (opcoes.length > 0) setFreteId(opcoes[0].id);
+        })
+        .catch(() => {})
+        .finally(() => setFreteLoading(false));
     }
+    void list; // suppress unused warning
+  }
 
-    if (step === 'plano') {
-      if (!planoSelecionado) {
-        setErrors({ plano: 'Selecione um plano para continuar.' });
-        setLoading(false);
-        return;
-      }
-    }
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP HANDLERS
+  // ─────────────────────────────────────────────────────────────────────────
 
-    setLoading(false);
-    const idx = stepOrder.indexOf(step);
-    setStep(stepOrder[idx + 1]);
+  // PLANO → EMAIL
+  const handleSelecionarPlano = () => {
+    if (!planoId) { err('plano', 'Selecione um plano para continuar.'); return; }
+    setErrors({});
+    setStep('email');
   };
 
-  const prevStep = () => {
-    const idx = stepOrder.indexOf(step);
-    if (idx > 0) setStep(stepOrder[idx - 1]);
-  };
+  // EMAIL: verificar se e-mail existe
+  const handleVerificarEmail = async () => {
+    setErrors({});
+    if (!email.trim()) { err('email', 'Informe seu e-mail para continuar.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      err('email', 'Este não parece um e-mail válido. Verifique e tente novamente.'); return;
+    }
 
-  const handleFinalizar = async () => {
-    if (!planoSelecionado) {
-      setErroFinal('Selecione um plano antes de continuar.');
+    setEmailChecking(true);
+    const tempPass = crypto.randomUUID();
+    const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password: tempPass,
+      options: { data: { name: email.split('@')[0] } },
+    });
+    setEmailChecking(false);
+
+    const jaExiste =
+      signUpErr?.code === 'user_already_exists' ||
+      signUpErr?.message?.toLowerCase().includes('already registered') ||
+      signUpErr?.message?.toLowerCase().includes('already been registered');
+
+    if (jaExiste) {
+      setEmailExists(true);
+      setIsNewUser(false);
       return;
     }
+    if (signUpErr) {
+      err('email', signUpErr.message?.toLowerCase().includes('rate')
+        ? 'Muitas tentativas. Aguarde alguns segundos e tente novamente.'
+        : signUpErr.message);
+      return;
+    }
+
+    // Novo usuário — avança para dados
+    setUserId(signUpData.user?.id ?? null);
+    setIsNewUser(true);
+    await salvarLead('checkout_iniciado');
+    setErrors({});
+    setStep('dados');
+  };
+
+  // EMAIL: entrar com conta existente
+  const handleLogin = async () => {
+    setErrors({});
+    if (!senha) { err('senha', 'Informe sua senha para continuar.'); return; }
+
     setLoading(true);
-    setErroFinal('');
-    try {
-      const uid = userId;
-      if (!uid) throw new Error('Sessão expirada. Volte ao início e tente novamente.');
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(), password: senha,
+    });
+    setLoading(false);
 
-      // 1. Criar ou reusar registro de cliente
-      let clienteId: string;
-      const { data: existing } = await supabase
-        .from('clientes')
-        .select('id')
-        .eq('user_id', uid)
-        .maybeSingle();
+    if (error) {
+      err('senha', 'Senha incorreta. Verifique e tente novamente, ou use "Esqueci minha senha".');
+      return;
+    }
 
-      if (existing) {
-        clienteId = existing.id;
-      } else {
-        const { data: clienteRow, error: cErr } = await supabase
-          .from('clientes')
-          .insert({
-            user_id: uid,
-            phone: contato.telefone,
-            cpf: dados.cpf || null,
-            preferencia_cafe: preferencias.tipo,
-            tipo_moagem: preferencias.tipo === 'moido' ? preferencias.moagem : null,
-          })
-          .select('id')
-          .single();
-        if (cErr) throw new Error(`Erro ao criar perfil: ${cErr.message}`);
-        clienteId = clienteRow.id;
+    setUserId(data.user.id);
+    await salvarLead('checkout_iniciado');
+
+    const cliente = await getClienteByUserId(data.user.id).catch(() => null);
+    if (cliente) {
+      setClienteId(cliente.id);
+      setStripeCustomerId((cliente as any).stripe_customer_id ?? null);
+
+      // Pre-fill dados
+      const nomePerfil = data.user.user_metadata?.name ?? '';
+      setDados(d => ({ ...d, nome: nomePerfil, celular: cliente.phone ?? '', cpf: cliente.cpf ?? '' }));
+
+      // Pre-fill preferências
+      if (cliente.preferenciaCafe) {
+        setPreferencias({ tipo: cliente.preferenciaCafe, moagem: cliente.tipoMoagem ?? 'medio' });
       }
 
-      // 2. Criar endereço de entrega
-      const { data: endRow, error: eErr } = await supabase
-        .from('enderecos')
-        .insert({
-          cliente_id: clienteId,
-          cep: endereco.cep,
-          logradouro: endereco.logradouro,
-          numero: endereco.numero,
-          complemento: endereco.complemento || null,
-          bairro: endereco.bairro,
-          cidade: endereco.cidade,
-          estado: endereco.estado,
-          padrao: true,
-        })
-        .select('id')
-        .single();
-      if (eErr) throw new Error(`Erro ao salvar endereço: ${eErr.message}`);
-      const enderecoId = endRow.id;
+      // Carregar endereços salvos
+      if (cliente.enderecos?.length > 0) {
+        setEnderecosSalvos(cliente.enderecos);
+        const padrao = cliente.enderecos.find(e => e.padrao) ?? cliente.enderecos[0];
+        selecionarEnderecoSalvo(padrao, cliente.enderecos);
+      }
 
-      // 3. Criar assinatura (status pendente até pagamento)
-      const proxStr = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
-        .toISOString().split('T')[0];
-
-      const { data: assRow, error: aErr } = await supabase
-        .from('assinaturas')
-        .insert({
-          cliente_id: clienteId,
-          plano_id: planoSelecionado,
-          preferencia_cafe: preferencias.tipo,
-          tipo_moagem: preferencias.tipo === 'moido' ? preferencias.moagem : null,
-          endereco_id: enderecoId,
-          frete: freteEstimado,
-          total_mensal: (planoObj?.preco ?? 0) + freteEstimado,
-          proxima_cobranca: proxStr,
-          proximo_envio: proxStr,
-          status: 'pendente',
-          data_inicio: new Date().toISOString().split('T')[0],
-        })
-        .select('id')
-        .single();
-      if (aErr) throw new Error(`Erro ao criar assinatura: ${aErr.message}`);
-
-      const assinaturaId = assRow.id;
-
-      // 4. Redirecionar ao Stripe (se configurado)
-      try {
-        const stripeUrl = await createCheckoutSession({
-          items: [{
-            name: `Assinatura ${planoObj?.nome ?? 'Das Matas'} — 1º mês`,
-            amount: (planoObj?.preco ?? 0) + freteEstimado,
-          }],
-          successPath: `/sucesso?tipo=assinatura&id=${assinaturaId}`,
-          cancelPath: '/assinar',
-          metadata: { assinatura_id: assinaturaId, cliente_id: clienteId },
-        });
-        window.location.href = stripeUrl;
+      const temDados = !!(nomePerfil && nomePerfil !== email.split('@')[0] && cliente.phone);
+      if (temDados) {
+        skipTo('preferencias', new Set<FlowStep>(['dados']));
         return;
-      } catch {
-        // Stripe não configurado — confirmar localmente
-        setStep('confirmado');
       }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao finalizar. Tente novamente.';
-      setErroFinal(msg);
+    }
+    setErrors({});
+    setStep('dados');
+  };
+
+  // DADOS → PREFERENCIAS
+  const handleDados = async () => {
+    const errs: Record<string, string> = {};
+    if (!dados.nome.trim())    errs.nome    = 'Precisamos do seu nome completo.';
+    if (!dados.celular.trim()) errs.celular = 'Informe um celular para atualizações do pedido.';
+    else if (dados.celular.replace(/\D/g, '').length < 10)
+      errs.celular = 'Celular inválido. Use o formato (11) 99999-9999.';
+
+    if (isNewUser) {
+      if (!dados.senhaNovo)                errs.senhaNovo      = 'Crie uma senha para acessar sua conta.';
+      else if (dados.senhaNovo.length < 8) errs.senhaNovo      = 'A senha deve ter ao menos 8 caracteres.';
+      else if (dados.senhaNovo !== dados.confirmarSenha)
+                                           errs.confirmarSenha = 'As senhas não conferem. Verifique e tente novamente.';
+    }
+
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    setLoading(true);
+    setErrors({});
+    try {
+      if (isNewUser && dados.senhaNovo) await supabase.auth.updateUser({ password: dados.senhaNovo });
+      await supabase.from('profiles').update({ name: dados.nome.trim() }).eq('id', userId);
+
+      if (clienteId) {
+        await supabase.from('clientes').update({
+          phone: dados.celular.replace(/\D/g, ''), cpf: dados.cpf || null,
+        }).eq('id', clienteId);
+      } else {
+        const { data: c, error: cErr } = await supabase.from('clientes').insert({
+          user_id: userId, phone: dados.celular.replace(/\D/g, ''), cpf: dados.cpf || null, preferencia_cafe: 'grao',
+        }).select('id').single();
+        if (cErr) throw new Error(`Erro ao criar perfil: ${cErr.message}`);
+        setClienteId(c.id);
+      }
+
+      await upsertLeadByEmail({
+        email, etapa: 'checkout_iniciado',
+        nome: dados.nome.trim(), telefone: dados.celular.replace(/\D/g, ''),
+      }).catch(() => {});
+
+      setErrors({});
+      setStep('preferencias');
+    } catch (e: unknown) {
+      err('geral', e instanceof Error ? e.message : 'Erro ao salvar dados. Tente novamente.');
     } finally {
       setLoading(false);
     }
   };
 
-  if (step === 'confirmado') {
-    return (
-      <div className="pt-20 min-h-screen bg-cream-100 flex items-center justify-center px-4">
-        <div className="max-w-lg w-full bg-white rounded-sm border border-cream-200 p-10 text-center">
-          <div className="w-20 h-20 bg-forest-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Check size={40} className="text-forest-500" />
-          </div>
-          <h1 className="font-serif text-3xl text-charcoal-700 mb-3">Bem-vindo ao Clube!</h1>
-          <p className="text-charcoal-500 mb-2">
-            Sua assinatura do plano <strong>{planoObj?.nome}</strong> foi confirmada.
-          </p>
-          <p className="text-charcoal-500 mb-8">
-            Você receberá um e-mail de confirmação em <strong>{contato.email}</strong> com todos os detalhes.
-          </p>
-          <div className="flex flex-col gap-3">
-            <Link
-              to="/cliente"
-              className="flex items-center justify-center gap-2 py-3.5 bg-forest-500 text-cream-100 text-sm font-medium tracking-wider uppercase rounded-sm hover:bg-forest-600 transition-colors"
-            >
-              Acessar minha conta
-              <ArrowRight size={14} />
-            </Link>
-            <Link to="/" className="text-sm text-charcoal-400 hover:text-charcoal-600">
-              Voltar ao início
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // PREFERENCIAS → ENDERECO
+  const handlePreferencias = () => {
+    setErrors({});
+    // Inicializa seleção de endereço se ainda não definida
+    if (enderecoSelecionadoId === null) {
+      if (enderecosSalvos.length > 0) {
+        const padrao = enderecosSalvos.find(e => e.padrao) ?? enderecosSalvos[0];
+        selecionarEnderecoSalvo(padrao);
+      } else {
+        setEnderecoSelecionadoId('novo');
+      }
+    }
+    setStep('endereco');
+  };
 
+  // ENDERECO: auto-fill via ViaCEP
+  const handleCepChange = async (valor: string) => {
+    setEndereco(e => ({ ...e, cep: valor }));
+    const cepLimpo = valor.replace(/\D/g, '');
+    if (cepLimpo.length !== 8) return;
+
+    setCepLoading(true);
+    setFreteOpcoes([]); setFreteId(null);
+    try {
+      const addr = await buscarEnderecoCep(cepLimpo);
+      setEndereco(e => ({ ...e, logradouro: addr.logradouro, bairro: addr.bairro, cidade: addr.cidade, estado: addr.estado }));
+    } catch {
+      err('cep', 'CEP não encontrado. Verifique e tente novamente.');
+    } finally {
+      setCepLoading(false);
+    }
+  };
+
+  // ENDERECO: calcular frete manualmente (só necessário no formulário novo)
+  const handleCalcularFrete = async () => {
+    const cepLimpo = endereco.cep.replace(/\D/g, '');
+    if (cepLimpo.length !== 8) { err('cep', 'Informe um CEP válido para calcular o frete.'); return; }
+    setErrors({});
+    setFreteLoading(true);
+    try {
+      const opcoes = await calcularFrete(cepLimpo);
+      setFreteOpcoes(opcoes);
+      if (opcoes.length > 0) setFreteId(opcoes[0].id);
+    } catch (e: unknown) {
+      err('frete', e instanceof Error ? e.message : 'Erro ao calcular frete. Tente novamente.');
+    } finally {
+      setFreteLoading(false);
+    }
+  };
+
+  // ENDERECO → PAGAMENTO
+  const handleEndereco = () => {
+    const errs: Record<string, string> = {};
+    if (!endereco.cep.trim())        errs.cep        = 'Informe seu CEP.';
+    if (!endereco.logradouro.trim()) errs.logradouro  = 'Informe o logradouro.';
+    if (!endereco.numero.trim())     errs.numero      = 'Informe o número.';
+    if (!endereco.bairro.trim())     errs.bairro      = 'Informe o bairro.';
+    if (!endereco.cidade.trim())     errs.cidade      = 'Informe a cidade.';
+    if (!endereco.estado.trim())     errs.estado      = 'Selecione o estado.';
+    if (freteOpcoes.length === 0)    errs.frete       = 'Clique em "Calcular frete" antes de continuar.';
+    else if (!freteId)               errs.frete       = 'Selecione uma opção de frete para continuar.';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setErrors({});
+    setStep('pagamento');
+  };
+
+  // PAGAMENTO → STRIPE
+  const handlePagar = async () => {
+    if (!planoId || !freteSelecionado) { setAlerta('Dados incompletos. Volte e verifique as informações.'); return; }
+    if (!userId || !clienteId)         { setAlerta('Sessão expirada. Recarregue a página e tente novamente.'); return; }
+
+    setLoading(true);
+    setAlerta('');
+    try {
+      const totalMensal = (planoObj?.preco ?? 0) + freteSelecionado.preco;
+      let assId = assinaturaId;
+      const lId = leadId ?? await salvarLead('pagamento_iniciado');
+
+      if (!assId) {
+        // 1. Criar endereço (apenas se for novo; reutiliza se for salvo)
+        let enderecoId: string;
+        if (enderecoSelecionadoId && enderecoSelecionadoId !== 'novo') {
+          enderecoId = enderecoSelecionadoId;
+        } else {
+          const { data: endRow, error: eErr } = await supabase.from('enderecos').insert({
+            cliente_id:  clienteId,
+            cep:         endereco.cep.replace(/\D/g, ''),
+            logradouro:  endereco.logradouro,
+            numero:      endereco.numero,
+            complemento: endereco.complemento || null,
+            bairro:      endereco.bairro,
+            cidade:      endereco.cidade,
+            estado:      endereco.estado,
+            padrao:      enderecosSalvos.length === 0,
+          }).select('id').single();
+          if (eErr) throw new Error(`Erro ao salvar endereço: ${eErr.message}`);
+          enderecoId = endRow.id;
+        }
+
+        // 2. Criar assinatura
+        const proxStr = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
+          .toISOString().split('T')[0];
+        const { data: assRow, error: aErr } = await supabase.from('assinaturas').insert({
+          cliente_id:       clienteId,
+          plano_id:         planoId,
+          preferencia_cafe: preferencias.tipo,
+          tipo_moagem:      preferencias.tipo === 'moido' ? preferencias.moagem : null,
+          endereco_id:      enderecoId,
+          frete:            freteSelecionado.preco,
+          total_mensal:     totalMensal,
+          proxima_cobranca: proxStr,
+          proximo_envio:    proxStr,
+          status:           'pendente',
+          data_inicio:      new Date().toISOString().split('T')[0],
+        }).select('id').single();
+        if (aErr) throw new Error(`Erro ao criar assinatura: ${aErr.message}`);
+        assId = assRow.id;
+        setAssinaturaId(assId);
+      }
+
+      // 3. Atualizar lead
+      if (lId) await updateLeadEtapa(lId as string, 'pagamento_iniciado').catch(() => {});
+
+      // 4. Salvar para retorno do Stripe
+      sessionStorage.setItem('dsmatas_lead_id',       lId ?? '');
+      sessionStorage.setItem('dsmatas_assinatura_id', assId!);
+
+      // 5. Criar sessão Stripe (com customer para cartões salvos)
+      const { url: stripeUrl, customerId: returnedCustomerId } = await createCheckoutSession({
+        items: [{
+          name:   `Assinatura ${planoObj?.nome ?? 'Das Matas'} — 1º mês`,
+          amount: totalMensal,
+        }],
+        successPath: `/sucesso?tipo=assinatura&id=${assId}&lead=${lId ?? ''}`,
+        cancelPath:  `/assinar?cancelado=true`,
+        metadata:    { assinatura_id: assId!, cliente_id: clienteId! },
+        customerId:  stripeCustomerId ?? undefined,
+        customerEmail: email,
+      });
+
+      // 6. Salvar Stripe Customer ID no cliente (se for novo)
+      if (returnedCustomerId && returnedCustomerId !== stripeCustomerId) {
+        setStripeCustomerId(returnedCustomerId);
+        updateClienteStripeCustomerId(clienteId!, returnedCustomerId).catch(() => {});
+      }
+
+      window.location.href = stripeUrl;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro inesperado. Tente novamente.';
+      if (leadId) updateLeadEtapa(leadId, 'pagamento_invalido').catch(() => {});
+      setAlerta(
+        msg.includes('Failed to send') || msg.includes('Edge Function') || msg.includes('fetch')
+          ? 'O sistema de pagamento está temporariamente indisponível. Verifique se a função create-checkout está deployada no Supabase e os secrets STRIPE_SECRET_KEY e SITE_URL estão configurados.'
+          : msg,
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // NAVIGATION
+  // ─────────────────────────────────────────────────────────────────────────
+  const prevStep = () => {
+    setErrors({}); setAlerta('');
+    const idx = STEPS.indexOf(step);
+    if (idx > 0) setStep(STEPS[idx - 1]);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="pt-20 min-h-screen bg-cream-100">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12">
+
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-3">
@@ -318,177 +574,185 @@ export function AssinarPage() {
             <span className="font-serif text-xl text-charcoal-700">Das Matas</span>
           </div>
           <h1 className="font-serif text-3xl text-charcoal-700">Assinar o Clube</h1>
-          <p className="text-charcoal-500 text-sm mt-2">Preencha os dados abaixo para começar sua jornada.</p>
+          <p className="text-charcoal-500 text-sm mt-2">Café especial direto dos produtores até sua porta.</p>
         </div>
 
-        <StepIndicator current={step} />
+        <StepIndicator current={step} skipped={skipped} />
 
         <div className="bg-white rounded-sm border border-cream-200 p-8">
-          {/* STEP 1: CONTATO */}
-          {step === 'contato' && (
+
+          {/* ── STEP 1: PLANO ──────────────────────────────────────────────── */}
+          {step === 'plano' && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Escolha seu plano</h2>
+                <p className="text-sm text-charcoal-400">Todos incluem cafés especiais selecionados.</p>
+              </div>
+              {errors.plano && <Alert type="error" message={errors.plano} />}
+              {planos.map(plano => (
+                <label key={plano.id} className={`flex items-start gap-4 p-5 rounded-sm border-2 cursor-pointer transition-all ${
+                  planoId === plano.id ? 'border-forest-500 bg-forest-50' : 'border-cream-300 hover:border-earth-300'
+                }`}>
+                  <input type="radio" name="plano" value={plano.id}
+                    checked={planoId === plano.id}
+                    onChange={() => setPlanoId(plano.id)}
+                    className="mt-1 accent-forest-500"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-serif text-lg text-charcoal-700">{plano.nome}</span>
+                      {plano.destaque && (
+                        <span className="px-2 py-0.5 bg-forest-500 text-white text-xs rounded-full">Mais popular</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-charcoal-500 mb-2">{plano.descricao}</p>
+                    <p className="font-display text-2xl text-charcoal-700">
+                      R$ {plano.preco.toFixed(2).replace('.', ',')}
+                      <span className="text-sm font-sans text-charcoal-400">/mês</span>
+                    </p>
+                  </div>
+                </label>
+              ))}
+              <div className="pt-4">
+                <Button variant="primary" size="lg" onClick={handleSelecionarPlano} className="w-full">
+                  Assinar este plano <ChevronRight size={16} />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 2: EMAIL ───────────────────────────────────────────────── */}
+          {step === 'email' && (
             <div className="space-y-5">
               <div>
-                <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Seus dados de contato</h2>
-                <p className="text-sm text-charcoal-400">Esses dados criarão sua conta no clube.</p>
+                <h2 className="font-serif text-2xl text-charcoal-700 mb-1">
+                  {emailExists ? 'Bem-vindo de volta!' : 'Qual é o seu e-mail?'}
+                </h2>
+                <p className="text-sm text-charcoal-400">
+                  {emailExists
+                    ? 'Você já tem uma conta. Entre com sua senha para continuar.'
+                    : 'Usaremos para enviar as informações da sua assinatura.'}
+                </p>
               </div>
               <Input
                 label="E-mail"
                 type="email"
                 required
-                value={contato.email}
-                onChange={e => setContato({ ...contato, email: e.target.value })}
+                value={email}
+                onChange={e => { setEmail(e.target.value); setEmailExists(false); setSenha(''); setErrors({}); }}
                 error={errors.email}
                 placeholder="seu@email.com"
+                disabled={emailChecking || loading}
               />
-              <Input
-                label="Senha (mínimo 6 caracteres)"
-                type="password"
-                required
-                value={contato.senha}
-                onChange={e => setContato({ ...contato, senha: e.target.value })}
-                error={errors.senha}
-                placeholder="••••••••"
-              />
-              <Input
-                label="Telefone / WhatsApp"
-                required
-                value={contato.telefone}
-                onChange={e => setContato({ ...contato, telefone: e.target.value })}
-                error={errors.telefone}
-                placeholder="(11) 99999-9999"
-              />
-              <Alert type="info" message="Seus dados ficam seguros. Utilizamos estas informações apenas para comunicação sobre sua assinatura." />
+              {emailExists && (
+                <div className="space-y-1">
+                  <div className="relative">
+                    <Input
+                      label="Senha"
+                      type={senhaVisivel ? 'text' : 'password'}
+                      required
+                      value={senha}
+                      onChange={e => setSenha(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                      error={errors.senha}
+                      placeholder="••••••••"
+                    />
+                    <button type="button" onClick={() => setSenhaVisivel(v => !v)}
+                      className="absolute right-3 top-9 text-charcoal-400 hover:text-charcoal-600">
+                      {senhaVisivel ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <Link to="/entrar" className="text-xs text-forest-600 hover:underline">
+                    Esqueci minha senha
+                  </Link>
+                </div>
+              )}
+              <Alert type="info" message="Seus dados são protegidos e nunca compartilhados." />
             </div>
           )}
 
-          {/* STEP 2: DADOS */}
+          {/* ── STEP 3: DADOS ───────────────────────────────────────────────── */}
           {step === 'dados' && (
             <div className="space-y-5">
-              <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Dados pessoais</h2>
-              <Input
-                label="Nome completo"
-                required
+              <div>
+                <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Seus dados pessoais</h2>
+                <p className="text-sm text-charcoal-400">Para enviarmos seu café e mantermos contato.</p>
+              </div>
+              {errors.geral && <Alert type="error" message={errors.geral} />}
+              <Input label="Nome completo" required
                 value={dados.nome}
-                onChange={e => setDados({ ...dados, nome: e.target.value })}
-                placeholder="Seu nome completo"
+                onChange={e => setDados(d => ({ ...d, nome: e.target.value }))}
+                error={errors.nome} placeholder="Seu nome completo"
               />
-              <div className="grid grid-cols-2 gap-5">
-                <Input
-                  label="CPF"
-                  value={dados.cpf}
-                  onChange={e => setDados({ ...dados, cpf: e.target.value })}
-                  placeholder="000.000.000-00"
-                />
-                <Input
-                  label="Data de nascimento"
-                  type="date"
-                  value={dados.nascimento}
-                  onChange={e => setDados({ ...dados, nascimento: e.target.value })}
-                />
-              </div>
+              <Input label="Celular / WhatsApp" required
+                value={dados.celular}
+                onChange={e => setDados(d => ({ ...d, celular: e.target.value }))}
+                error={errors.celular} placeholder="(11) 99999-9999"
+              />
+              <Input label="CPF (opcional)"
+                value={dados.cpf}
+                onChange={e => setDados(d => ({ ...d, cpf: e.target.value }))}
+                placeholder="000.000.000-00"
+              />
+              {isNewUser && (
+                <>
+                  <div className="relative">
+                    <Input label="Crie sua senha (mínimo 8 caracteres)"
+                      type={senhaNovVisivel ? 'text' : 'password'}
+                      required
+                      value={dados.senhaNovo}
+                      onChange={e => setDados(d => ({ ...d, senhaNovo: e.target.value }))}
+                      error={errors.senhaNovo} placeholder="••••••••"
+                    />
+                    <button type="button" onClick={() => setSenhaNovVisivel(v => !v)}
+                      className="absolute right-3 top-9 text-charcoal-400 hover:text-charcoal-600">
+                      {senhaNovVisivel ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <Input label="Confirmar senha"
+                    type="password" required
+                    value={dados.confirmarSenha}
+                    onChange={e => setDados(d => ({ ...d, confirmarSenha: e.target.value }))}
+                    error={errors.confirmarSenha} placeholder="••••••••"
+                  />
+                </>
+              )}
             </div>
           )}
 
-          {/* STEP 3: ENDEREÇO */}
-          {step === 'endereco' && (
-            <div className="space-y-5">
-              <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Endereço de entrega</h2>
-              <div className="grid grid-cols-2 gap-5">
-                <Input
-                  label="CEP"
-                  required
-                  value={endereco.cep}
-                  onChange={e => setEndereco({ ...endereco, cep: e.target.value })}
-                  placeholder="00000-000"
-                />
-                <div />
-              </div>
-              <Input
-                label="Logradouro"
-                required
-                value={endereco.logradouro}
-                onChange={e => setEndereco({ ...endereco, logradouro: e.target.value })}
-                placeholder="Rua, Avenida..."
-              />
-              <div className="grid grid-cols-2 gap-5">
-                <Input
-                  label="Número"
-                  required
-                  value={endereco.numero}
-                  onChange={e => setEndereco({ ...endereco, numero: e.target.value })}
-                  placeholder="Ex: 100"
-                />
-                <Input
-                  label="Complemento"
-                  value={endereco.complemento}
-                  onChange={e => setEndereco({ ...endereco, complemento: e.target.value })}
-                  placeholder="Apto, sala..."
-                />
-              </div>
-              <Input
-                label="Bairro"
-                required
-                value={endereco.bairro}
-                onChange={e => setEndereco({ ...endereco, bairro: e.target.value })}
-                placeholder="Bairro"
-              />
-              <div className="grid grid-cols-2 gap-5">
-                <Input
-                  label="Cidade"
-                  required
-                  value={endereco.cidade}
-                  onChange={e => setEndereco({ ...endereco, cidade: e.target.value })}
-                  placeholder="Cidade"
-                />
-                <Select
-                  label="Estado"
-                  value={endereco.estado}
-                  onChange={e => setEndereco({ ...endereco, estado: e.target.value })}
-                  placeholder="UF"
-                  options={['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'].map(s => ({ value: s, label: s }))}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* STEP 4: PREFERÊNCIAS */}
+          {/* ── STEP 4: PREFERÊNCIAS ────────────────────────────────────────── */}
           {step === 'preferencias' && (
             <div className="space-y-6">
-              <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Preferências do café</h2>
               <div>
-                <p className="text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-3">Como você prefere receber?</p>
+                <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Como você prefere o café?</h2>
+                <p className="text-sm text-charcoal-400">Você pode alterar isso a qualquer momento na sua conta.</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-3">Formato</p>
                 <div className="grid grid-cols-2 gap-4">
                   {(['grao', 'moido'] as const).map(tipo => (
-                    <button
-                      key={tipo}
-                      onClick={() => setPreferencias({ ...preferencias, tipo })}
+                    <button key={tipo} onClick={() => setPreferencias(p => ({ ...p, tipo }))}
                       className={`p-5 rounded-sm border-2 text-left transition-all ${
-                        preferencias.tipo === tipo
-                          ? 'border-forest-500 bg-forest-50'
-                          : 'border-cream-300 hover:border-earth-300'
+                        preferencias.tipo === tipo ? 'border-forest-500 bg-forest-50' : 'border-cream-300 hover:border-earth-300'
                       }`}
                     >
                       <Package size={24} className={`mb-2 ${preferencias.tipo === tipo ? 'text-forest-500' : 'text-charcoal-300'}`} />
                       <p className="font-medium text-charcoal-700">{tipo === 'grao' ? 'Em Grão' : 'Moído'}</p>
                       <p className="text-xs text-charcoal-400 mt-1">
-                        {tipo === 'grao'
-                          ? 'Máximo frescor. Ideal para quem tem moedor.'
-                          : 'Prático e conveniente. Pronto para usar.'}
+                        {tipo === 'grao' ? 'Máximo frescor. Ideal para quem tem moedor.' : 'Prático e pronto para usar.'}
                       </p>
                     </button>
                   ))}
                 </div>
               </div>
-
               {preferencias.tipo === 'moido' && (
-                <Select
-                  label="Tipo de moagem"
+                <Select label="Tipo de moagem"
                   value={preferencias.moagem}
-                  onChange={e => setPreferencias({ ...preferencias, moagem: e.target.value })}
+                  onChange={e => setPreferencias(p => ({ ...p, moagem: e.target.value }))}
                   options={[
-                    { value: 'fino', label: 'Fina — Espresso e Moka' },
-                    { value: 'medio', label: 'Média — Coador e AeroPress' },
-                    { value: 'grosso', label: 'Grossa — Prensa Francesa' },
+                    { value: 'fino',        label: 'Fina — Espresso e Moka' },
+                    { value: 'medio',       label: 'Média — Coador e AeroPress' },
+                    { value: 'grosso',      label: 'Grossa — Prensa Francesa' },
                     { value: 'extraGrosso', label: 'Extra Grossa — Cold Brew' },
                   ]}
                 />
@@ -496,148 +760,231 @@ export function AssinarPage() {
             </div>
           )}
 
-          {/* STEP 5: PLANO */}
-          {step === 'plano' && (
-            <div className="space-y-4">
-              <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Escolha seu plano</h2>
-              {errors.plano && <Alert type="error" message={errors.plano} />}
-              {planos.map(plano => (
-                <label
-                  key={plano.id}
-                  className={`flex items-start gap-4 p-5 rounded-sm border-2 cursor-pointer transition-all ${
-                    planoSelecionado === plano.id
-                      ? 'border-forest-500 bg-forest-50'
-                      : 'border-cream-300 hover:border-earth-300'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="plano"
-                    value={plano.id}
-                    checked={planoSelecionado === plano.id}
-                    onChange={() => setPlanoSelecionado(plano.id)}
-                    className="mt-1"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-serif text-lg text-charcoal-700">{plano.nome}</span>
-                      {plano.destaque && (
-                        <span className="px-2 py-0.5 bg-forest-500 text-white text-xs rounded-full">Popular</span>
+          {/* ── STEP 5: ENDEREÇO ────────────────────────────────────────────── */}
+          {step === 'endereco' && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Endereço de entrega</h2>
+                <p className="text-sm text-charcoal-400">Onde entregaremos seu café todo mês.</p>
+              </div>
+
+              {/* Endereços salvos */}
+              {enderecosSalvos.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-charcoal-500 uppercase tracking-wider">
+                    Seus endereços cadastrados
+                  </p>
+                  {enderecosSalvos.map(end => (
+                    <button key={end.id} type="button"
+                      onClick={() => selecionarEnderecoSalvo(end)}
+                      className={`w-full flex items-start gap-3 p-4 rounded-sm border-2 text-left transition-all ${
+                        enderecoSelecionadoId === end.id
+                          ? 'border-forest-500 bg-forest-50'
+                          : 'border-cream-300 hover:border-earth-300'
+                      }`}
+                    >
+                      <Home size={16} className={`mt-0.5 shrink-0 ${enderecoSelecionadoId === end.id ? 'text-forest-500' : 'text-charcoal-300'}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-charcoal-700">
+                          {end.logradouro}, {end.numero}
+                          {end.complemento ? ` — ${end.complemento}` : ''}
+                        </p>
+                        <p className="text-xs text-charcoal-400">
+                          {end.bairro} · {end.cidade}/{end.estado} · CEP {end.cep}
+                        </p>
+                      </div>
+                      {enderecoSelecionadoId === end.id && (
+                        <Check size={16} className="text-forest-500 shrink-0 mt-0.5" />
+                      )}
+                    </button>
+                  ))}
+
+                  {/* Opção: novo endereço */}
+                  <button type="button"
+                    onClick={() => {
+                      setEnderecoSelecionadoId('novo');
+                      setEndereco({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '' });
+                      setFreteOpcoes([]); setFreteId(null);
+                    }}
+                    className={`w-full flex items-center gap-3 p-4 rounded-sm border-2 text-left transition-all ${
+                      enderecoSelecionadoId === 'novo'
+                        ? 'border-forest-500 bg-forest-50'
+                        : 'border-cream-300 hover:border-earth-300'
+                    }`}
+                  >
+                    <Plus size={16} className={enderecoSelecionadoId === 'novo' ? 'text-forest-500' : 'text-charcoal-400'} />
+                    <span className="text-sm font-medium text-charcoal-700">Usar um novo endereço</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Formulário de novo endereço */}
+              {(enderecoSelecionadoId === 'novo' || enderecosSalvos.length === 0) && (
+                <div className="space-y-4 pt-2">
+                  <div className="grid grid-cols-2 gap-5">
+                    <div className="relative">
+                      <Input label="CEP" required
+                        value={endereco.cep}
+                        onChange={e => handleCepChange(e.target.value)}
+                        error={errors.cep} placeholder="00000-000" maxLength={9}
+                      />
+                      {cepLoading && (
+                        <div className="absolute right-3 top-9 w-4 h-4 border-2 border-forest-500 border-t-transparent rounded-full animate-spin" />
                       )}
                     </div>
-                    <p className="text-sm text-charcoal-500 mb-2">{plano.descricao}</p>
-                    <p className="font-display text-2xl text-charcoal-700">R$ {plano.preco}<span className="text-sm font-sans text-charcoal-400">/mês</span></p>
+                    <div />
                   </div>
-                </label>
-              ))}
+                  <Input label="Logradouro" required
+                    value={endereco.logradouro}
+                    onChange={e => setEndereco(a => ({ ...a, logradouro: e.target.value }))}
+                    error={errors.logradouro} placeholder="Rua, Avenida..."
+                  />
+                  <div className="grid grid-cols-2 gap-5">
+                    <Input label="Número" required
+                      value={endereco.numero}
+                      onChange={e => setEndereco(a => ({ ...a, numero: e.target.value }))}
+                      error={errors.numero} placeholder="Ex: 100"
+                    />
+                    <Input label="Complemento"
+                      value={endereco.complemento}
+                      onChange={e => setEndereco(a => ({ ...a, complemento: e.target.value }))}
+                      placeholder="Apto, bloco..."
+                    />
+                  </div>
+                  <Input label="Bairro" required
+                    value={endereco.bairro}
+                    onChange={e => setEndereco(a => ({ ...a, bairro: e.target.value }))}
+                    error={errors.bairro} placeholder="Bairro"
+                  />
+                  <div className="grid grid-cols-2 gap-5">
+                    <Input label="Cidade" required
+                      value={endereco.cidade}
+                      onChange={e => setEndereco(a => ({ ...a, cidade: e.target.value }))}
+                      error={errors.cidade} placeholder="Cidade"
+                    />
+                    <Select label="Estado"
+                      value={endereco.estado}
+                      onChange={e => setEndereco(a => ({ ...a, estado: e.target.value }))}
+                      placeholder="UF"
+                      options={['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT',
+                        'PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'].map(s => ({ value: s, label: s }))}
+                    />
+                  </div>
+                  {errors.estado && <p className="text-xs text-red-500 -mt-3">{errors.estado}</p>}
+                  <Button variant="secondary" onClick={handleCalcularFrete} loading={freteLoading}>
+                    <Truck size={16} /> Calcular opções de frete
+                  </Button>
+                </div>
+              )}
+
+              {errors.frete && <Alert type="error" message={errors.frete} />}
+
+              {/* Opções de frete */}
+              {freteLoading && (
+                <div className="flex items-center gap-2 text-sm text-charcoal-400">
+                  <div className="w-4 h-4 border-2 border-forest-500 border-t-transparent rounded-full animate-spin" />
+                  Calculando opções de frete...
+                </div>
+              )}
+              {freteOpcoes.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-charcoal-500 uppercase tracking-wider">Opções de entrega</p>
+                  {freteOpcoes.map(op => (
+                    <label key={op.id} className={`flex items-center gap-4 p-4 rounded-sm border-2 cursor-pointer transition-all ${
+                      freteId === op.id ? 'border-forest-500 bg-forest-50' : 'border-cream-300 hover:border-earth-300'
+                    }`}>
+                      <input type="radio" name="frete" value={op.id}
+                        checked={freteId === op.id}
+                        onChange={() => setFreteId(op.id)}
+                        className="accent-forest-500"
+                      />
+                      <MapPin size={16} className="text-charcoal-400 shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-charcoal-700">{op.empresa} — {op.nome}</p>
+                        <p className="text-xs text-charcoal-400">Prazo estimado: {op.prazo} dias úteis</p>
+                      </div>
+                      <span className="text-sm font-medium text-charcoal-700">
+                        R$ {op.preco.toFixed(2).replace('.', ',')}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {/* STEP 6: PAGAMENTO */}
+          {/* ── STEP 6: PAGAMENTO ───────────────────────────────────────────── */}
           {step === 'pagamento' && (
-            <div className="space-y-5">
-              <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Pagamento</h2>
+            <div className="space-y-6">
+              <div>
+                <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Resumo e pagamento</h2>
+                <p className="text-sm text-charcoal-400">Revise os detalhes antes de pagar.</p>
+              </div>
 
-              {/* Resumo */}
-              <div className="bg-cream-100 rounded-sm p-5 border border-cream-200">
-                <p className="text-sm font-medium text-charcoal-600 mb-3">Resumo da assinatura</p>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-charcoal-500">{planoObj?.nome}</span>
-                    <span className="text-charcoal-700">R$ {planoObj?.preco.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-charcoal-500">Frete estimado</span>
-                    <span className="text-charcoal-700">R$ {freteEstimado.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between pt-2 border-t border-cream-200">
-                    <span className="font-medium text-charcoal-700">Total mensal</span>
-                    <span className="font-serif text-lg text-charcoal-700">
-                      R$ {((planoObj?.preco ?? 0) + freteEstimado).toFixed(2)}
-                    </span>
-                  </div>
+              <div className="bg-cream-100 rounded-sm p-5 border border-cream-200 space-y-2 text-sm">
+                <p className="font-medium text-charcoal-600 mb-1">Resumo da assinatura</p>
+                <div className="flex justify-between">
+                  <span className="text-charcoal-500">{planoObj?.nome}</span>
+                  <span className="text-charcoal-700">R$ {planoObj?.preco.toFixed(2).replace('.', ',')}</span>
                 </div>
+                {freteSelecionado && (
+                  <div className="flex justify-between">
+                    <span className="text-charcoal-500">Frete — {freteSelecionado.empresa}</span>
+                    <span className="text-charcoal-700">R$ {freteSelecionado.preco.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+                <div className="flex justify-between pt-2 border-t border-cream-200">
+                  <span className="font-medium text-charcoal-700">Total mensal</span>
+                  <span className="font-serif text-xl text-charcoal-700">
+                    R$ {((planoObj?.preco ?? 0) + (freteSelecionado?.preco ?? 0)).toFixed(2).replace('.', ',')}
+                  </span>
+                </div>
+                <p className="text-xs text-charcoal-400 pt-1">
+                  Entrega em {freteSelecionado?.prazo ?? '—'} dias úteis · {endereco.cidade}/{endereco.estado}
+                </p>
               </div>
 
-              <div className="flex items-center gap-2 mb-2">
-                <CreditCard size={16} className="text-charcoal-400" />
-                <span className="text-sm font-medium text-charcoal-600">Cartão de crédito</span>
-              </div>
+              {stripeCustomerId && (
+                <Alert type="info" message="Seus cartões salvos aparecerão na próxima tela do Stripe para pagamento rápido." />
+              )}
 
-              <Input
-                label="Número do cartão"
-                value={pagamento.numero}
-                onChange={e => setPagamento({ ...pagamento, numero: e.target.value })}
-                placeholder="0000 0000 0000 0000"
-                maxLength={19}
-              />
-              <Input
-                label="Nome no cartão"
-                value={pagamento.nome}
-                onChange={e => setPagamento({ ...pagamento, nome: e.target.value })}
-                placeholder="NOME COMO NO CARTÃO"
-              />
-              <div className="grid grid-cols-2 gap-5">
-                <Input
-                  label="Validade"
-                  value={pagamento.validade}
-                  onChange={e => setPagamento({ ...pagamento, validade: e.target.value })}
-                  placeholder="MM/AA"
-                  maxLength={5}
-                />
-                <Input
-                  label="CVV"
-                  value={pagamento.cvv}
-                  onChange={e => setPagamento({ ...pagamento, cvv: e.target.value })}
-                  placeholder="000"
-                  maxLength={4}
-                />
-              </div>
+              {alerta && <Alert type="error" message={alerta} />}
 
-              <p className="text-xs text-charcoal-400 flex items-center gap-1">
-                🔒 Pagamento seguro via Pagar.me / Stripe. Seus dados são criptografados.
+              <Button variant="primary" size="lg" loading={loading} onClick={handlePagar} className="w-full">
+                <CreditCard size={18} />
+                Pagar R$ {((planoObj?.preco ?? 0) + (freteSelecionado?.preco ?? 0)).toFixed(2).replace('.', ',')} com Stripe
+              </Button>
+
+              <p className="text-xs text-charcoal-400 flex items-center justify-center gap-1.5">
+                <Lock size={12} /> Pagamento 100% seguro via Stripe. Seus dados são criptografados.
               </p>
             </div>
           )}
 
-          {/* NAVIGATION */}
-          {erroFinal && <Alert type="error" message={erroFinal} />}
+          {/* ── NAVIGATION ──────────────────────────────────────────────────── */}
+          {alerta && step !== 'pagamento' && <Alert type="error" message={alerta} />}
+
           <div className="flex items-center justify-between mt-8 pt-6 border-t border-cream-200">
-            {step !== 'contato' ? (
-              <button
-                onClick={prevStep}
-                className="text-sm text-charcoal-500 hover:text-charcoal-700 transition-colors"
-              >
+            {step !== 'plano' ? (
+              <button onClick={prevStep} className="text-sm text-charcoal-500 hover:text-charcoal-700 transition-colors">
                 ← Voltar
               </button>
-            ) : (
-              <div />
+            ) : <div />}
+
+            {step === 'email' && (
+              emailExists
+                ? <Button variant="primary" loading={loading}  onClick={handleLogin}>Entrar e continuar <ChevronRight size={16} /></Button>
+                : <Button variant="primary" loading={emailChecking} onClick={handleVerificarEmail}>Continuar <ChevronRight size={16} /></Button>
             )}
-            {step === 'pagamento' ? (
-              <Button
-                variant="primary"
-                size="lg"
-                loading={loading}
-                onClick={handleFinalizar}
-              >
-                <Check size={16} />
-                Confirmar assinatura
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                loading={loading}
-                onClick={nextStep}
-              >
-                Continuar
-                <ChevronRight size={16} />
-              </Button>
-            )}
+            {step === 'dados'        && <Button variant="primary" loading={loading} onClick={handleDados}>Continuar <ChevronRight size={16} /></Button>}
+            {step === 'preferencias' && <Button variant="primary" onClick={handlePreferencias}>Continuar <ChevronRight size={16} /></Button>}
+            {step === 'endereco'     && <Button variant="primary" onClick={handleEndereco}>Ir para pagamento <ChevronRight size={16} /></Button>}
+            {(step === 'plano' || step === 'pagamento') && <div />}
           </div>
         </div>
 
         <p className="text-center text-xs text-charcoal-400 mt-6">
-          Sem taxa de adesão · Cancele quando quiser · Dados protegidos
+          Sem taxa de adesão · Cancele quando quiser · Dados protegidos pela LGPD
         </p>
       </div>
     </div>

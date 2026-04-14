@@ -72,3 +72,45 @@ export async function deleteLead(id: string): Promise<void> {
   const { error } = await supabase.from('leads').delete().eq('id', id);
   if (error) throw error;
 }
+
+/**
+ * Cria um novo lead ou atualiza o existente pelo e-mail.
+ * Retorna o id do lead.
+ */
+export async function upsertLeadByEmail(l: {
+  email: string;
+  nome?: string;
+  telefone?: string;
+  origem?: Lead['origem'];
+  etapa: Lead['etapa'];
+  interesse?: string;
+  planoDesejado?: string;
+}): Promise<string> {
+  const { data: existing } = await supabase
+    .from('leads').select('id').eq('email', l.email).maybeSingle();
+
+  if (existing) {
+    const patch: Record<string, unknown> = {
+      etapa: l.etapa,
+      ultimo_contato: new Date().toISOString().split('T')[0],
+    };
+    if (l.nome)         patch.nome         = l.nome;
+    if (l.telefone)     patch.telefone     = l.telefone;
+    if (l.interesse)    patch.interesse    = l.interesse;
+    if (l.planoDesejado) patch.plano_desejado = l.planoDesejado;
+    await supabase.from('leads').update(patch).eq('id', existing.id);
+    return existing.id;
+  }
+
+  const { data, error } = await supabase.from('leads').insert({
+    nome:          l.nome ?? l.email.split('@')[0],
+    email:         l.email,
+    telefone:      l.telefone,
+    origem:        l.origem ?? 'checkout',
+    interesse:     l.interesse,
+    plano_desejado: l.planoDesejado,
+    etapa:         l.etapa,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
+}

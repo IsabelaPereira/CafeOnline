@@ -3,21 +3,34 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Package, Star } from 'lucide-react';
 import { updatePedidoStatus } from '../../services/pedidos.service';
 import { updateAssinaturaStatus } from '../../services/assinaturas.service';
+import { updateLeadEtapa } from '../../services/leads.service';
 
 export function SuccessPage() {
   const [params] = useSearchParams();
-  const tipo = params.get('tipo') ?? 'pedido'; // 'pedido' | 'assinatura'
-  const id   = params.get('id') ?? '';
+  const tipo   = params.get('tipo') ?? 'pedido'; // 'pedido' | 'assinatura'
+  const id     = params.get('id')   ?? '';
+  const leadId = params.get('lead') ?? '';
 
   const [done, setDone] = useState(false);
 
   useEffect(() => {
     if (!id) { setDone(true); return; }
-    const update = tipo === 'assinatura'
-      ? updateAssinaturaStatus(id, 'ativa')
-      : updatePedidoStatus(id, 'pago');
-    update.catch(console.error).finally(() => setDone(true));
-  }, [id, tipo]);
+
+    const updates: Promise<unknown>[] = [];
+
+    if (tipo === 'assinatura') {
+      updates.push(updateAssinaturaStatus(id, 'ativa'));
+      if (leadId) updates.push(updateLeadEtapa(leadId, 'assinatura_concluida'));
+    } else {
+      updates.push(updatePedidoStatus(id, 'pago'));
+    }
+
+    // Limpa dados temporários de sessão
+    sessionStorage.removeItem('dsmatas_lead_id');
+    sessionStorage.removeItem('dsmatas_assinatura_id');
+
+    Promise.allSettled(updates).finally(() => setDone(true));
+  }, [id, tipo, leadId]);
 
   if (!done) {
     return (

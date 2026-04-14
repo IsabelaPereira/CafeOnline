@@ -107,3 +107,11 @@ export async function definirEnderecoPadrao(id: string, clienteId: string): Prom
   const { error } = await supabase.from('enderecos').update({ padrao: true }).eq('id', id);
   if (error) throw error;
 }
+
+export async function updateClienteStripeCustomerId(clienteId: string, stripeCustomerId: string): Promise<void> {
+  const { error } = await supabase
+    .from('clientes')
+    .update({ stripe_customer_id: stripeCustomerId })
+    .eq('id', clienteId);
+  if (error) throw error;
+}
