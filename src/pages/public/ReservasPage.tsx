@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, Clock, Users, Check, MapPin, Phone } from 'lucide-react';
 import { Input, Select, Textarea, Button, Alert } from '../../components/ui';
+import { createReserva } from '../../services/reservas.service';
 
 type Step = 'form' | 'confirmado';
 
@@ -17,6 +18,7 @@ export function ReservasPage() {
     observacoes: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [erro, setErro] = useState('');
 
   const horariosDisponiveis = [
     '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
@@ -39,9 +41,24 @@ export function ReservasPage() {
     e.preventDefault();
     if (!validate()) return;
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1500));
-    setLoading(false);
-    setStep('confirmado');
+    setErro('');
+    try {
+      await createReserva({
+        nome: form.nome,
+        email: form.email,
+        telefone: form.telefone,
+        data: form.data,
+        horario: form.horario,
+        pessoas: Number(form.pessoas),
+        status: 'solicitada',
+        observacoes: form.observacoes || undefined,
+      });
+      setStep('confirmado');
+    } catch {
+      setErro('Erro ao enviar solicitação. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const today = new Date().toISOString().split('T')[0];
@@ -215,6 +232,7 @@ export function ReservasPage() {
                       rows={3}
                     />
 
+                    {erro && <Alert type="error" message={erro} />}
                     <Alert
                       type="info"
                       message="As reservas ficam sujeitas à confirmação. Você receberá um e-mail em até 2 horas após a solicitação."

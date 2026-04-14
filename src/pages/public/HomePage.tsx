@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight, Star, Package, BookOpen, Heart, ChevronDown,
-  Coffee, MapPin, Award, Check, Quote
+  Coffee, MapPin, Award, Check, Quote, Mail
 } from 'lucide-react';
 import { usePlanos } from '../../hooks/useAssinaturas';
+import { createLead } from '../../services/leads.service';
 
 // ---- HERO ----
 function Hero() {
@@ -536,6 +537,84 @@ function FAQ() {
   );
 }
 
+// ---- NEWSLETTER ----
+function Newsletter() {
+  const [email, setEmail] = useState('');
+  const [nome, setNome] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [enviado, setEnviado] = useState(false);
+  const [erro, setErro] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    setLoading(true);
+    setErro('');
+    try {
+      await createLead({
+        nome: nome || email.split('@')[0],
+        email,
+        origem: 'landing',
+        interesse: 'newsletter',
+      });
+      setEnviado(true);
+    } catch {
+      setErro('Não foi possível realizar o cadastro. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="py-20 bg-forest-800">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 text-center">
+        <div className="flex items-center justify-center gap-2 mb-4">
+          <Mail size={20} className="text-earth-300" />
+          <span className="text-xs font-medium tracking-wider uppercase text-earth-300">Newsletter</span>
+        </div>
+        <h2 className="font-serif text-3xl text-cream-100 mb-3">Receba novidades sobre café especial</h2>
+        <p className="text-charcoal-300 text-sm mb-8">
+          Dicas de preparo, histórias de produtores e alertas das novas edições do clube.
+        </p>
+
+        {enviado ? (
+          <div className="flex items-center justify-center gap-3 py-4 px-6 bg-forest-700 rounded-sm border border-forest-600">
+            <Check size={18} className="text-earth-300" />
+            <p className="text-cream-100 text-sm font-medium">Ótimo! Você está na lista. Obrigado!</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+            <input
+              type="text"
+              value={nome}
+              onChange={e => setNome(e.target.value)}
+              placeholder="Seu nome"
+              className="flex-1 px-4 py-3 bg-forest-700 border border-forest-600 rounded-sm text-sm text-cream-100 placeholder-charcoal-400 focus:outline-none focus:ring-1 focus:ring-earth-400"
+            />
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="seu@email.com"
+              className="flex-1 px-4 py-3 bg-forest-700 border border-forest-600 rounded-sm text-sm text-cream-100 placeholder-charcoal-400 focus:outline-none focus:ring-1 focus:ring-earth-400"
+            />
+            <button
+              type="submit"
+              disabled={loading || !email}
+              className="px-6 py-3 bg-earth-400 text-cream-100 text-sm font-medium rounded-sm hover:bg-earth-500 disabled:opacity-50 transition-colors uppercase tracking-wider shrink-0"
+            >
+              {loading ? '...' : 'Inscrever'}
+            </button>
+          </form>
+        )}
+        {erro && <p className="text-red-400 text-xs mt-3">{erro}</p>}
+        <p className="text-charcoal-400 text-xs mt-4">Sem spam. Cancele quando quiser.</p>
+      </div>
+    </section>
+  );
+}
+
 // ---- CTA FINAL ----
 function CTAFinal() {
   return (
@@ -590,6 +669,7 @@ export function HomePage() {
       <GraoOuMoido />
       <Depoimentos />
       <FAQ />
+      <Newsletter />
       <CTAFinal />
     </>
   );

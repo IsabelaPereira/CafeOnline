@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   ShoppingCart, MapPin, CreditCard, CheckCircle2,
   ChevronRight, Package, Minus, Plus, X, Lock,
   QrCode, FileText, ArrowLeft
 } from 'lucide-react';
 import { useCart } from '../../contexts/CartContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { createPedido } from '../../services/pedidos.service';
+import { getClienteByUserId } from '../../services/clientes.service';
+import { createCheckoutSession } from '../../services/stripe.service';
 
 // ---- STEP INDICATOR ----
 function StepIndicator({ step }: { step: number }) {
@@ -151,11 +155,21 @@ function OrderSummary({
 }
 
 // ---- STEP 1: CART ----
-function StepCart({ onNext }: { onNext: () => void }) {
+function StepCart({
+  onNext,
+  cupomAplicado,
+  setCupomAplicado,
+  desconto,
+  setDesconto,
+}: {
+  onNext: () => void;
+  cupomAplicado: string;
+  setCupomAplicado: (v: string) => void;
+  desconto: number;
+  setDesconto: (v: number) => void;
+}) {
   const { items, count } = useCart();
   const [cupomInput, setCupomInput] = useState('');
-  const [cupomAplicado, setCupomAplicado] = useState('');
-  const [desconto, setDesconto] = useState(0);
   const [cupomErro, setCupomErro] = useState('');
 
   const CUPONS: Record<string, number> = {
@@ -453,11 +467,13 @@ function StepPagamento({
   onBack,
   metodo,
   setMetodo,
+  loading = false,
 }: {
   onNext: () => void;
   onBack: () => void;
   metodo: MetodoPagamento | '';
   setMetodo: (m: MetodoPagamento) => void;
+  loading?: boolean;
 }) {
   const [cartao, setCartao] = useState({
     numero: '',
@@ -622,11 +638,11 @@ function StepPagamento({
         </button>
         <button
           onClick={onNext}
-          disabled={!formValido}
+          disabled={!formValido || loading}
           className="flex items-center justify-center gap-2 px-8 py-3.5 bg-forest-500 text-cream-100 text-sm font-medium rounded-sm hover:bg-forest-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors uppercase tracking-wider"
         >
-          Confirmar pedido
-          <ChevronRight size={14} />
+          {loading ? 'Confirmando...' : 'Confirmar pedido'}
+          {!loading && <ChevronRight size={14} />}
         </button>
       </div>
     </div>
@@ -637,11 +653,13 @@ function StepPagamento({
 function StepConfirmacao({
   metodo,
   endereco,
+  pedidoNumero,
 }: {
   metodo: MetodoPagamento | '';
   endereco: EnderecoForm;
+  pedidoNumero: string;
 }) {
-  const numeroPedido = `DM-${Date.now().toString().slice(-6)}`;
+  const numeroPedido = pedidoNumero || `DM-${Date.now().toString().slice(-6)}`;
 
   return (
     <div className="text-center">
@@ -720,11 +738,73 @@ export function CheckoutPage() {
   });
   const [frete, setFrete] = useState(0);
   const [metodo, setMetodo] = useState<MetodoPagamento | ''>('');
-  const { clearCart } = useCart();
+  const [cupomAplicado, setCupomAplicado] = useState('');
+  const [desconto, setDesconto] = useState(0);
+  const [pedidoNumero, setPedidoNumero] = useState('');
+  const [confirmando, setConfirmando] = useState(false);
+  const { items, total, clearCart } = useCart();
+  const { user } = useAuth();
 
-  const confirmar = () => {
-    clearCart();
-    setStep(4);
+  const confirmar = async () => {
+    setConfirmando(true);
+    try {
+      let clienteId: string | undefined;
+      if (user) {
+        const cliente = await getClienteByUserId(user.id).catch(() => null);
+        clienteId = cliente?.id;
+      }
+      const totalFinal = Math.max(0, total - desconto + frete);
+      const pedido = await createPedido({
+        clienteId,
+        itens: items.map(item => ({
+          produtoId: item.produto.id,
+          nomeProduto: item.produto.nome,
+          skuProduto: item.produto.sku,
+          quantidade: item.quantidade,
+          precoUnitario: item.produto.precoPromocional ?? item.produto.preco,
+        })),
+        subtotal: total,
+        frete,
+        desconto,
+        total: totalFinal,
+        enderecoEntrega: {
+          id: '',
+          cep: endereco.cep,
+          logradouro: endereco.logradouro,
+          numero: endereco.numero,
+          complemento: endereco.complemento || undefined,
+          bairro: endereco.bairro,
+          cidade: endereco.cidade,
+          estado: endereco.estado,
+          padrao: false,
+        },
+        formaPagamento: metodo === 'cartao' ? 'Cartão de crédito' : metodo === 'pix' ? 'PIX' : 'Boleto bancário',
+        cupom: cupomAplicado || undefined,
+      });
+
+      // Redirecionar ao Stripe
+      try {
+        const stripeUrl = await createCheckoutSession({
+          items: [{ name: `Pedido ${pedido.numero}`, amount: totalFinal }],
+          successPath: `/sucesso?tipo=pedido&id=${pedido.id}`,
+          cancelPath: '/checkout',
+          metadata: { pedido_id: pedido.id },
+        });
+        clearCart();
+        window.location.href = stripeUrl;
+        return;
+      } catch {
+        // Stripe não configurado — exibir tela de confirmação local
+      }
+
+      setPedidoNumero(pedido.numero);
+    } catch (err) {
+      console.error('Erro ao criar pedido:', err);
+    } finally {
+      clearCart();
+      setConfirmando(false);
+      setStep(4);
+    }
   };
 
   return (
@@ -743,7 +823,13 @@ export function CheckoutPage() {
         <StepIndicator step={step} />
 
         {step === 1 && (
-          <StepCart onNext={() => setStep(2)} />
+          <StepCart
+            onNext={() => setStep(2)}
+            cupomAplicado={cupomAplicado}
+            setCupomAplicado={setCupomAplicado}
+            desconto={desconto}
+            setDesconto={setDesconto}
+          />
         )}
         {step === 2 && (
           <StepEntrega
@@ -761,10 +847,11 @@ export function CheckoutPage() {
             onBack={() => setStep(2)}
             metodo={metodo}
             setMetodo={setMetodo}
+            loading={confirmando}
           />
         )}
         {step === 4 && (
-          <StepConfirmacao metodo={metodo} endereco={endereco} />
+          <StepConfirmacao metodo={metodo} endereco={endereco} pedidoNumero={pedidoNumero} />
         )}
       </div>
     </div>

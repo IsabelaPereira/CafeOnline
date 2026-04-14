@@ -4,6 +4,8 @@ import { Check, ChevronRight, Coffee, Package, CreditCard, ArrowRight } from 'lu
 import { Input, Select, Button, Alert } from '../../components/ui';
 import { usePlanos } from '../../hooks/useAssinaturas';
 import { createLead } from '../../services/leads.service';
+import { supabase } from '../../lib/supabase';
+import { createCheckoutSession } from '../../services/stripe.service';
 
 type Step = 'contato' | 'dados' | 'endereco' | 'preferencias' | 'plano' | 'pagamento' | 'confirmado';
 
@@ -63,7 +65,7 @@ export function AssinarPage() {
   const [loading, setLoading] = useState(false);
   const [leadSalvo, setLeadSalvo] = useState(false);
 
-  const [contato, setContato] = useState({ email: '', telefone: '' });
+  const [contato, setContato] = useState({ email: '', telefone: '', senha: '' });
   const [dados, setDados] = useState({ nome: '', cpf: '', nascimento: '' });
   const [endereco, setEndereco] = useState({
     cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: ''
@@ -77,34 +79,73 @@ export function AssinarPage() {
     numero: '', validade: '', cvv: '', nome: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [erroFinal, setErroFinal] = useState('');
+  const [userId, setUserId] = useState<string | null>(null); // preenchido no passo 1
 
   const planoObj = planos.find(p => p.id === planoSelecionado);
   const freteEstimado = 18.90;
 
   const salvarLead = async () => {
     if (!leadSalvo && contato.email && contato.telefone) {
-      // Simular salvamento do lead
-      await new Promise(r => setTimeout(r, 300));
+      try {
+        await createLead({
+          nome: dados.nome || contato.email.split('@')[0],
+          email: contato.email,
+          telefone: contato.telefone,
+          origem: 'checkout',
+          planoDesejado: planoSelecionado || undefined,
+        });
+      } catch {
+        // falha silenciosa — não bloquear o fluxo do usuário
+      }
       setLeadSalvo(true);
-      console.log('Lead salvo:', { email: contato.email, telefone: contato.telefone, etapa: 'checkout_iniciado' });
     }
   };
 
   const nextStep = async () => {
     setLoading(true);
+    setErrors({});
+
     if (step === 'contato') {
-      if (!contato.email || !contato.telefone) {
-        setErrors({ email: !contato.email ? 'E-mail obrigatório' : '', telefone: !contato.telefone ? 'Telefone obrigatório' : '' });
+      const errs: Record<string, string> = {};
+      if (!contato.email)    errs.email    = 'E-mail obrigatório';
+      if (!contato.telefone) errs.telefone = 'Telefone obrigatório';
+      if (!contato.senha || contato.senha.length < 6) errs.senha = 'Senha mínima de 6 caracteres';
+      if (Object.keys(errs).length) { setErrors(errs); setLoading(false); return; }
+
+      // Verificar / criar conta já no passo 1
+      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+        email: contato.email,
+        password: contato.senha,
+        options: { data: { name: contato.email.split('@')[0] } },
+      });
+
+      if (signUpErr?.code === 'user_already_exists' || signUpErr?.message?.includes('already registered')) {
+        // Conta existe — tentar login com a senha informada
+        const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
+          email: contato.email,
+          password: contato.senha,
+        });
+        if (loginErr) {
+          setErrors({ email: 'Este e-mail já está cadastrado. Verifique a senha ou acesse via "Entrar".' });
+          setLoading(false);
+          return;
+        }
+        setUserId(loginData.user?.id ?? null);
+      } else if (signUpErr) {
+        setErrors({ email: signUpErr.message });
         setLoading(false);
         return;
+      } else {
+        setUserId(signUpData.user?.id ?? null);
       }
+
       await salvarLead();
     }
-    await new Promise(r => setTimeout(r, 500));
+
     setLoading(false);
     const idx = stepOrder.indexOf(step);
     setStep(stepOrder[idx + 1]);
-    setErrors({});
   };
 
   const prevStep = () => {
@@ -113,10 +154,75 @@ export function AssinarPage() {
   };
 
   const handleFinalizar = async () => {
+    if (!planoSelecionado) {
+      setErroFinal('Selecione um plano antes de continuar.');
+      return;
+    }
     setLoading(true);
-    await new Promise(r => setTimeout(r, 2000));
-    setLoading(false);
-    setStep('confirmado');
+    setErroFinal('');
+    try {
+      // userId já foi obtido no passo 1 (contato)
+      const uid = userId;
+      if (!uid) throw new Error('Sessão expirada. Volte ao início e tente novamente.');
+
+      // 2. Criar cliente, endereço e assinatura via Edge Function (service role bypassa RLS)
+      const proxStr = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
+        .toISOString().split('T')[0];
+
+      const { data: setupData, error: setupErr } = await supabase.functions.invoke('setup-user', {
+        body: {
+          userId: uid,
+          phone: contato.telefone,
+          cpf: dados.cpf || null,
+          preferenciaCafe: preferencias.tipo,
+          tipoMoagem: preferencias.tipo === 'moido' ? preferencias.moagem : null,
+          endereco: {
+            cep: endereco.cep,
+            logradouro: endereco.logradouro,
+            numero: endereco.numero,
+            complemento: endereco.complemento || null,
+            bairro: endereco.bairro,
+            cidade: endereco.cidade,
+            estado: endereco.estado,
+          },
+          planoId: planoSelecionado,
+          frete: freteEstimado,
+          totalMensal: (planoObj?.preco ?? 0) + freteEstimado,
+          proximaCobranca: proxStr,
+          proximoEnvio: proxStr,
+        },
+      });
+
+      if (setupErr || setupData?.error) {
+        throw new Error(setupData?.error ?? setupErr?.message ?? 'Erro ao salvar dados.');
+      }
+
+      const assinaturaId: string = setupData.assinaturaId;
+      const clienteId: string = setupData.clienteId;
+
+      // 3. Redirecionar ao Stripe (se configurado)
+      try {
+        const stripeUrl = await createCheckoutSession({
+          items: [{
+            name: `Assinatura ${planoObj?.nome ?? 'Das Matas'} — 1º mês`,
+            amount: (planoObj?.preco ?? 0) + freteEstimado,
+          }],
+          successPath: `/sucesso?tipo=assinatura&id=${assinaturaId}`,
+          cancelPath: '/assinar',
+          metadata: { assinatura_id: assinaturaId, cliente_id: clienteId },
+        });
+        window.location.href = stripeUrl;
+        return;
+      } catch {
+        // Stripe não configurado — mostrar confirmação local
+        setStep('confirmado');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro ao finalizar. Tente novamente.';
+      setErroFinal(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (step === 'confirmado') {
@@ -173,7 +279,7 @@ export function AssinarPage() {
             <div className="space-y-5">
               <div>
                 <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Seus dados de contato</h2>
-                <p className="text-sm text-charcoal-400">Esses dados serão usados para comunicação e envio da assinatura.</p>
+                <p className="text-sm text-charcoal-400">Esses dados criarão sua conta no clube.</p>
               </div>
               <Input
                 label="E-mail"
@@ -183,6 +289,15 @@ export function AssinarPage() {
                 onChange={e => setContato({ ...contato, email: e.target.value })}
                 error={errors.email}
                 placeholder="seu@email.com"
+              />
+              <Input
+                label="Senha (mínimo 6 caracteres)"
+                type="password"
+                required
+                value={contato.senha}
+                onChange={e => setContato({ ...contato, senha: e.target.value })}
+                error={errors.senha}
+                placeholder="••••••••"
               />
               <Input
                 label="Telefone / WhatsApp"
@@ -435,6 +550,7 @@ export function AssinarPage() {
           )}
 
           {/* NAVIGATION */}
+          {erroFinal && <Alert type="error" message={erroFinal} />}
           <div className="flex items-center justify-between mt-8 pt-6 border-t border-cream-200">
             {step !== 'contato' ? (
               <button
