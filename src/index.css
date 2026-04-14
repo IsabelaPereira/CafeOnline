@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: #F8F4EF;
+    color: #1A1A1A;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+
+  .font-display {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-forest-500 text-cream-100 px-6 py-3 rounded-sm font-sans font-medium text-sm tracking-wider uppercase transition-all duration-200 hover:bg-forest-600 active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply border border-forest-500 text-forest-500 px-6 py-3 rounded-sm font-sans font-medium text-sm tracking-wider uppercase transition-all duration-200 hover:bg-forest-500 hover:text-cream-100;
+  }
+
+  .btn-gold {
+    @apply bg-gold-400 text-charcoal-700 px-6 py-3 rounded-sm font-sans font-medium text-sm tracking-wider uppercase transition-all duration-200 hover:bg-gold-500;
+  }
+
+  .btn-earth {
+    @apply bg-earth-500 text-cream-100 px-6 py-3 rounded-sm font-sans font-medium text-sm tracking-wider uppercase transition-all duration-200 hover:bg-earth-600;
+  }
+
+  .card-base {
+    @apply bg-white rounded-sm shadow-sm border border-cream-200;
+  }
+
+  .input-base {
+    @apply w-full px-4 py-3 border border-cream-300 rounded-sm bg-white text-charcoal-700 font-sans text-sm focus:outline-none focus:ring-1 focus:ring-forest-400 focus:border-forest-400 transition-colors;
+  }
+
+  .label-base {
+    @apply block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5;
+  }
+
+  .section-title {
+    @apply font-serif text-3xl md:text-4xl text-charcoal-700 leading-tight;
+  }
+
+  .section-subtitle {
+    @apply font-display text-lg md:text-xl text-earth-400 italic;
+  }
+
+  .badge-active {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-forest-100 text-forest-600;
+  }
+
+  .badge-pending {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gold-100 text-gold-600;
+  }
+
+  .badge-cancelled {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600;
+  }
+
+  .badge-inactive {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-charcoal-100 text-charcoal-500;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-sm text-sm font-sans text-charcoal-400 hover:bg-cream-200 hover:text-charcoal-700 transition-colors cursor-pointer;
+  }
+
+  .sidebar-link-active {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-sm text-sm font-sans bg-forest-500 text-white cursor-pointer;
+  }
+
+  .admin-card {
+    @apply bg-white rounded-sm border border-cream-200 p-6;
+  }
+
+  .stat-card {
+    @apply bg-white rounded-sm border border-cream-200 p-5 flex flex-col gap-2;
+  }
+
+  .table-th {
+    @apply px-4 py-3 text-left text-xs font-medium text-charcoal-400 uppercase tracking-wider bg-cream-100 border-b border-cream-200;
+  }
+
+  .table-td {
+    @apply px-4 py-3 text-sm text-charcoal-600 border-b border-cream-100;
+  }
+}
+
+/* Scrollbar customization */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F8F4EF;
+}
+::-webkit-scrollbar-thumb {
+  background: #C4956A;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8B5E3C;
+}
+
+/* Custom prose for blog */
+.prose-coffee h2 {
+  font-family: 'Playfair Display', Georgia, serif;
+  color: #1A1A1A;
+}
+.prose-coffee p {
+  color: #404040;
+  line-height: 1.8;
+}
