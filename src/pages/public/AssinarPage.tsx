@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Check, ChevronRight, Coffee, Package, CreditCard, ArrowRight } from 'lucide-react';
 import { Input, Select, Button, Alert } from '../../components/ui';
@@ -75,6 +75,14 @@ export function AssinarPage() {
     moagem: 'medio',
   });
   const [planoSelecionado, setPlanoSelecionado] = useState(planoInicial);
+
+  // Auto-seleciona o primeiro plano quando a lista carrega e nenhum foi pré-selecionado
+  useEffect(() => {
+    if (!planoSelecionado && planos.length > 0) {
+      setPlanoSelecionado(planos[0].id);
+    }
+  }, [planos, planoSelecionado]);
+
   const [pagamento, setPagamento] = useState({
     numero: '', validade: '', cvv: '', nome: '',
   });
@@ -143,6 +151,14 @@ export function AssinarPage() {
       await salvarLead();
     }
 
+    if (step === 'plano') {
+      if (!planoSelecionado) {
+        setErrors({ plano: 'Selecione um plano para continuar.' });
+        setLoading(false);
+        return;
+      }
+    }
+
     setLoading(false);
     const idx = stepOrder.indexOf(step);
     setStep(stepOrder[idx + 1]);
@@ -161,46 +177,80 @@ export function AssinarPage() {
     setLoading(true);
     setErroFinal('');
     try {
-      // userId já foi obtido no passo 1 (contato)
       const uid = userId;
       if (!uid) throw new Error('Sessão expirada. Volte ao início e tente novamente.');
 
-      // 2. Criar cliente, endereço e assinatura via Edge Function (service role bypassa RLS)
+      // 1. Criar ou reusar registro de cliente
+      let clienteId: string;
+      const { data: existing } = await supabase
+        .from('clientes')
+        .select('id')
+        .eq('user_id', uid)
+        .maybeSingle();
+
+      if (existing) {
+        clienteId = existing.id;
+      } else {
+        const { data: clienteRow, error: cErr } = await supabase
+          .from('clientes')
+          .insert({
+            user_id: uid,
+            phone: contato.telefone,
+            cpf: dados.cpf || null,
+            preferencia_cafe: preferencias.tipo,
+            tipo_moagem: preferencias.tipo === 'moido' ? preferencias.moagem : null,
+          })
+          .select('id')
+          .single();
+        if (cErr) throw new Error(`Erro ao criar perfil: ${cErr.message}`);
+        clienteId = clienteRow.id;
+      }
+
+      // 2. Criar endereço de entrega
+      const { data: endRow, error: eErr } = await supabase
+        .from('enderecos')
+        .insert({
+          cliente_id: clienteId,
+          cep: endereco.cep,
+          logradouro: endereco.logradouro,
+          numero: endereco.numero,
+          complemento: endereco.complemento || null,
+          bairro: endereco.bairro,
+          cidade: endereco.cidade,
+          estado: endereco.estado,
+          padrao: true,
+        })
+        .select('id')
+        .single();
+      if (eErr) throw new Error(`Erro ao salvar endereço: ${eErr.message}`);
+      const enderecoId = endRow.id;
+
+      // 3. Criar assinatura (status pendente até pagamento)
       const proxStr = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
         .toISOString().split('T')[0];
 
-      const { data: setupData, error: setupErr } = await supabase.functions.invoke('setup-user', {
-        body: {
-          userId: uid,
-          phone: contato.telefone,
-          cpf: dados.cpf || null,
-          preferenciaCafe: preferencias.tipo,
-          tipoMoagem: preferencias.tipo === 'moido' ? preferencias.moagem : null,
-          endereco: {
-            cep: endereco.cep,
-            logradouro: endereco.logradouro,
-            numero: endereco.numero,
-            complemento: endereco.complemento || null,
-            bairro: endereco.bairro,
-            cidade: endereco.cidade,
-            estado: endereco.estado,
-          },
-          planoId: planoSelecionado,
+      const { data: assRow, error: aErr } = await supabase
+        .from('assinaturas')
+        .insert({
+          cliente_id: clienteId,
+          plano_id: planoSelecionado,
+          preferencia_cafe: preferencias.tipo,
+          tipo_moagem: preferencias.tipo === 'moido' ? preferencias.moagem : null,
+          endereco_id: enderecoId,
           frete: freteEstimado,
-          totalMensal: (planoObj?.preco ?? 0) + freteEstimado,
-          proximaCobranca: proxStr,
-          proximoEnvio: proxStr,
-        },
-      });
+          total_mensal: (planoObj?.preco ?? 0) + freteEstimado,
+          proxima_cobranca: proxStr,
+          proximo_envio: proxStr,
+          status: 'pendente',
+          data_inicio: new Date().toISOString().split('T')[0],
+        })
+        .select('id')
+        .single();
+      if (aErr) throw new Error(`Erro ao criar assinatura: ${aErr.message}`);
 
-      if (setupErr || setupData?.error) {
-        throw new Error(setupData?.error ?? setupErr?.message ?? 'Erro ao salvar dados.');
-      }
+      const assinaturaId = assRow.id;
 
-      const assinaturaId: string = setupData.assinaturaId;
-      const clienteId: string = setupData.clienteId;
-
-      // 3. Redirecionar ao Stripe (se configurado)
+      // 4. Redirecionar ao Stripe (se configurado)
       try {
         const stripeUrl = await createCheckoutSession({
           items: [{
@@ -214,7 +264,7 @@ export function AssinarPage() {
         window.location.href = stripeUrl;
         return;
       } catch {
-        // Stripe não configurado — mostrar confirmação local
+        // Stripe não configurado — confirmar localmente
         setStep('confirmado');
       }
     } catch (err: unknown) {
@@ -450,6 +500,7 @@ export function AssinarPage() {
           {step === 'plano' && (
             <div className="space-y-4">
               <h2 className="font-serif text-2xl text-charcoal-700 mb-1">Escolha seu plano</h2>
+              {errors.plano && <Alert type="error" message={errors.plano} />}
               {planos.map(plano => (
                 <label
                   key={plano.id}
