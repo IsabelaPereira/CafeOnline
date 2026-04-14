@@ -562,6 +562,12 @@ export function AdminAssinaturas() {
                 { label: 'Total Mensal', value: `R$ ${selected.totalMensal.toFixed(2)}` },
                 { label: 'Próx. Cobrança', value: new Date(selected.proximaCobranca).toLocaleDateString('pt-BR') },
                 { label: 'Preferência', value: `${selected.preferenciaCafe === 'grao' ? 'Grão' : `Moído (${selected.tipoMoagem ?? ''})`}` },
+                {
+                  label: 'ID Stripe',
+                  value: selected.stripeSubscriptionId
+                    ? <span className="font-mono text-xs text-charcoal-500 break-all">{selected.stripeSubscriptionId}</span>
+                    : <span className="text-charcoal-400 text-xs">—</span>,
+                },
               ].map(info => (
                 <div key={info.label} className="bg-cream-50 rounded-sm p-3">
                   <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>

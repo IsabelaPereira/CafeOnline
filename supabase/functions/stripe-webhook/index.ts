@@ -365,11 +365,81 @@ async function handleSubscriptionDeleted(
   subscription: Stripe.Subscription,
   supabase: ReturnType<typeof createClient>,
 ) {
+  // Montar motivo a partir dos detalhes de cancelamento do Stripe
+  const details   = (subscription as any).cancellation_details as { reason?: string | null; feedback?: string | null; comment?: string | null } | null;
+  const motivoPartes: string[] = [];
+  if (details?.reason)   motivoPartes.push(motivoLabel(details.reason));
+  if (details?.feedback) motivoPartes.push(feedbackLabel(details.feedback));
+  if (details?.comment)  motivoPartes.push(details.comment);
+  const motivo = motivoPartes.length > 0 ? motivoPartes.join(' — ') : null;
+
+  // Detectar origem (portal do cliente ou ação administrativa/API)
+  // O campo ended_at indica quando a sub foi efetivamente encerrada
+  const origem = details?.reason === 'cancellation_requested'
+    ? 'Portal do cliente (Stripe)'
+    : details?.reason === 'payment_failed'
+      ? 'Cancelamento automático por inadimplência (Stripe)'
+      : details?.reason === 'payment_disputed'
+        ? 'Cancelamento por disputa de pagamento (Stripe)'
+        : 'Cancelamento via Stripe';
+
+  // Buscar assinatura para obter o id interno
+  const { data: ass } = await supabase
+    .from('assinaturas')
+    .select('id, status')
+    .eq('stripe_subscription_id', subscription.id)
+    .maybeSingle();
+
+  if (!ass) {
+    console.warn(`[subscription.deleted] Assinatura não encontrada para sub ${subscription.id}`);
+    return;
+  }
+
+  const hoje = new Date().toISOString().split('T')[0];
+
+  // Atualizar status
   await supabase.from('assinaturas').update({
-    status:   'cancelada',
-    data_fim: new Date().toISOString().split('T')[0],
-  }).eq('stripe_subscription_id', subscription.id);
-  console.log(`[subscription.deleted] Assinatura cancelada para sub ${subscription.id}`);
+    status:                     'cancelada',
+    data_fim:                   hoje,
+    cancelamento_agendado:      false,
+    data_cancelamento_agendado: null,
+    motivo_cancelamento:        motivo,
+  }).eq('id', ass.id);
+
+  // Registrar histórico de alteração
+  await supabase.from('alteracoes_assinatura').insert({
+    assinatura_id: ass.id,
+    tipo:          'cancelamento',
+    de:            ass.status,
+    para:          'cancelada',
+    data:          new Date().toISOString(),
+    usuario:       origem,
+  });
+
+  console.log(`[subscription.deleted] Assinatura ${ass.id} cancelada — origem: ${origem}${motivo ? ` — motivo: ${motivo}` : ''}`);
+}
+
+function motivoLabel(reason: string): string {
+  const map: Record<string, string> = {
+    cancellation_requested: 'Solicitado pelo cliente',
+    payment_failed:         'Falha no pagamento',
+    payment_disputed:       'Disputa de pagamento',
+  };
+  return map[reason] ?? reason;
+}
+
+function feedbackLabel(feedback: string): string {
+  const map: Record<string, string> = {
+    customer_service:  'Atendimento ao cliente',
+    low_quality:       'Qualidade baixa',
+    missing_features:  'Funcionalidades ausentes',
+    other:             'Outro motivo',
+    switched_service:  'Trocou por outro serviço',
+    too_complex:       'Muito complexo',
+    too_expensive:     'Preço elevado',
+    unused:            'Não estava utilizando',
+  };
+  return map[feedback] ?? feedback;
 }
 
 // ── customer.subscription.updated ───────────────────────────────────────────
@@ -397,17 +467,41 @@ async function handleSubscriptionUpdated(
   }
 
   // Cancelamento agendado no fim do período
+  let cancelamentoAgendadoNovo: boolean | null = null;
   if (subscription.cancel_at_period_end && subscription.cancel_at) {
     patch.cancelamento_agendado      = true;
     patch.data_cancelamento_agendado = new Date(subscription.cancel_at * 1000).toISOString().split('T')[0];
+    cancelamentoAgendadoNovo = true;
   } else if (!subscription.cancel_at_period_end) {
     patch.cancelamento_agendado      = false;
     patch.data_cancelamento_agendado = null;
+    cancelamentoAgendadoNovo = false;
   }
 
   if (Object.keys(patch).length === 0) return;
+
+  // Buscar assinatura atual para registrar histórico quando necessário
+  const { data: ass } = await supabase
+    .from('assinaturas')
+    .select('id, status, cancelamento_agendado')
+    .eq('stripe_subscription_id', subscription.id)
+    .maybeSingle();
+
   await supabase.from('assinaturas').update(patch).eq('stripe_subscription_id', subscription.id);
   console.log(`[subscription.updated] Patch aplicado para sub ${subscription.id}:`, patch);
+
+  // Registrar histórico quando cancelamento é agendado via portal/Stripe externamente
+  if (ass && cancelamentoAgendadoNovo === true && !ass.cancelamento_agendado) {
+    await supabase.from('alteracoes_assinatura').insert({
+      assinatura_id: ass.id,
+      tipo:          'cancelamento_agendado',
+      de:            'ativa',
+      para:          patch.data_cancelamento_agendado as string,
+      data:          new Date().toISOString(),
+      usuario:       'Portal do cliente (Stripe)',
+    });
+    console.log(`[subscription.updated] Cancelamento agendado registrado para assinatura ${ass.id}`);
+  }
 }
 
 // ── customer.subscription.paused ────────────────────────────────────────────
