@@ -10,7 +10,7 @@ const statusLabel: Record<string, string> = {
   pendente: 'Pendente', pago: 'Pago', em_separacao: 'Em separação',
   enviado: 'Enviado', entregue: 'Entregue', cancelado: 'Cancelado', reembolsado: 'Reembolsado',
 };
-const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive'> = {
+const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
   pendente: 'pending', pago: 'pending', em_separacao: 'pending',
   enviado: 'gold', entregue: 'active', cancelado: 'cancelled', reembolsado: 'inactive',
 };

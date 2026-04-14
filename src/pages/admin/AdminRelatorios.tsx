@@ -113,7 +113,7 @@ export function AdminRelatorios() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#EDE8E0" />
                       <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']} />
+                      <Tooltip formatter={(v: unknown) => [`R$ ${Number(v ?? 0).toLocaleString('pt-BR')}`, '']} />
                       <Bar dataKey="receita" name="Receita" fill="#2D4A3E" radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>

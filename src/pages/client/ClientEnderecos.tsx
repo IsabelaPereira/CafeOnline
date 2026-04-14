@@ -150,7 +150,7 @@ export function ClientEnderecos() {
         </Button>
       </div>
 
-      {sucesso && <Alert variant="success">{sucesso}</Alert>}
+      {sucesso && <Alert type="success" message={sucesso} />}
 
       {enderecos.length === 0 ? (
         <Card className="text-center py-16">

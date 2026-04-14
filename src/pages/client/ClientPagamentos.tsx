@@ -120,7 +120,7 @@ export function ClientPagamentos() {
         </Button>
       </div>
 
-      {sucesso && <Alert variant="success">{sucesso}</Alert>}
+      {sucesso && <Alert type="success" message={sucesso} />}
 
       {/* Aviso segurança */}
       <div className="flex items-center gap-3 p-4 bg-forest-50 border border-forest-100 rounded-sm text-sm text-forest-700">

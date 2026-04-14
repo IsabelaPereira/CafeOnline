@@ -87,7 +87,7 @@ export function AdminLogistica() {
         </a>
       </div>
 
-      {sucesso && <Alert variant="success">{sucesso}</Alert>}
+      {sucesso && <Alert type="success" message={sucesso} />}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

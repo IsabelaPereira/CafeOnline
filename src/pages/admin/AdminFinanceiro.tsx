@@ -142,7 +142,7 @@ export function AdminFinanceiro() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#EDE8E0" />
                     <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                    <Tooltip formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']} />
+                    <Tooltip formatter={(v: unknown) => [`R$ ${Number(v ?? 0).toLocaleString('pt-BR')}`, '']} />
                     <Legend />
                     <Area type="monotone" dataKey="receita" name="Receita" stroke="#2D4A3E" fill="url(#grad1)" strokeWidth={2} />
                     <Area type="monotone" dataKey="despesas" name="Despesas" stroke="#C4956A" fill="url(#grad2)" strokeWidth={2} />
@@ -376,7 +376,7 @@ export function AdminFinanceiro() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#EDE8E0" />
                   <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']} />
+                  <Tooltip formatter={(v: unknown) => [`R$ ${Number(v ?? 0).toLocaleString('pt-BR')}`, '']} />
                   <Legend />
                   <Bar dataKey="receita" name="Receita" fill="#2D4A3E" radius={[3, 3, 0, 0]} />
                   <Bar dataKey="custos" name="Custos" fill="#C4956A" radius={[3, 3, 0, 0]} />
@@ -407,7 +407,7 @@ export function AdminFinanceiro() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#EDE8E0" />
                   <XAxis dataKey="semana" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, '']} />
+                  <Tooltip formatter={(v: unknown) => [`R$ ${Number(v ?? 0).toLocaleString('pt-BR')}`, '']} />
                   <Legend />
                   <Bar dataKey="entradas" name="Entradas" fill="#2D4A3E" radius={[3, 3, 0, 0]} />
                   <Bar dataKey="saidas" name="Saídas" fill="#C4956A" radius={[3, 3, 0, 0]} />

@@ -76,7 +76,7 @@ export function ClientPerfil() {
         <p className="text-charcoal-400 text-sm mt-1">Gerencie suas informações pessoais e preferências.</p>
       </div>
 
-      {sucesso && <Alert variant="success">{sucesso}</Alert>}
+      {sucesso && <Alert type="success" message={sucesso} />}
 
       {/* Avatar + nome */}
       <Card>
@@ -252,7 +252,7 @@ export function ClientPerfil() {
 
         {editandoSenha ? (
           <div className="space-y-4 max-w-sm">
-            {erroSenha && <Alert variant="error">{erroSenha}</Alert>}
+            {erroSenha && <Alert type="error" message={erroSenha} />}
             <Input
               label="Senha atual"
               type="password"
