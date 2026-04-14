@@ -127,6 +127,8 @@ export interface Assinatura {
   motivoCancelamento?: string;
   stripeSubscriptionId?: string;
   stripePriceId?: string;
+  cancelamentoAgendado?: boolean;
+  dataCancelamentoAgendado?: string;
   historicoCobrancas: CobrancaAssinatura[];
   historicoAlteracoes: AlteracaoAssinatura[];
   ciclos: CicloAssinatura[];

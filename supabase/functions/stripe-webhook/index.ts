@@ -58,6 +58,18 @@ Deno.serve(async (req) => {
       case 'customer.subscription.updated':
         await handleSubscriptionUpdated(event.data.object as Stripe.Subscription, supabase);
         break;
+      case 'customer.subscription.paused':
+        await handleSubscriptionPaused(event.data.object as Stripe.Subscription, supabase);
+        break;
+      case 'customer.subscription.resumed':
+        await handleSubscriptionResumed(event.data.object as Stripe.Subscription, supabase);
+        break;
+      case 'invoice.payment_action_required':
+        await handleInvoiceFailed(event.data.object as Stripe.Invoice, supabase);
+        break;
+      case 'charge.refunded':
+        await handleChargeRefunded(event.data.object as Stripe.Charge, supabase);
+        break;
       default:
         console.log(`[stripe-webhook] Evento ignorado: ${event.type}`);
     }
@@ -365,8 +377,105 @@ async function handleSubscriptionUpdated(
   subscription: Stripe.Subscription,
   supabase: ReturnType<typeof createClient>,
 ) {
-  if (!subscription.current_period_end) return;
-  await supabase.from('assinaturas').update({
-    proxima_cobranca: new Date(subscription.current_period_end * 1000).toISOString().split('T')[0],
-  }).eq('stripe_subscription_id', subscription.id);
+  const patch: Record<string, unknown> = {};
+
+  if (subscription.current_period_end) {
+    patch.proxima_cobranca = new Date(subscription.current_period_end * 1000).toISOString().split('T')[0];
+  }
+
+  // Sincronizar status Stripe → status local
+  const stripeStatus = subscription.status;
+  if (stripeStatus === 'active') {
+    patch.status = 'ativa';
+  } else if (stripeStatus === 'past_due' || stripeStatus === 'unpaid' || stripeStatus === 'incomplete') {
+    patch.status = 'inadimplente';
+  } else if (stripeStatus === 'canceled') {
+    patch.status = 'cancelada';
+    patch.data_fim = new Date().toISOString().split('T')[0];
+  } else if (stripeStatus === 'paused') {
+    patch.status = 'pausada';
+  }
+
+  // Cancelamento agendado no fim do período
+  if (subscription.cancel_at_period_end && subscription.cancel_at) {
+    patch.cancelamento_agendado      = true;
+    patch.data_cancelamento_agendado = new Date(subscription.cancel_at * 1000).toISOString().split('T')[0];
+  } else if (!subscription.cancel_at_period_end) {
+    patch.cancelamento_agendado      = false;
+    patch.data_cancelamento_agendado = null;
+  }
+
+  if (Object.keys(patch).length === 0) return;
+  await supabase.from('assinaturas').update(patch).eq('stripe_subscription_id', subscription.id);
+  console.log(`[subscription.updated] Patch aplicado para sub ${subscription.id}:`, patch);
+}
+
+// ── customer.subscription.paused ────────────────────────────────────────────
+async function handleSubscriptionPaused(
+  subscription: Stripe.Subscription,
+  supabase: ReturnType<typeof createClient>,
+) {
+  await supabase.from('assinaturas')
+    .update({ status: 'pausada' })
+    .eq('stripe_subscription_id', subscription.id);
+  console.log(`[subscription.paused] Assinatura pausada para sub ${subscription.id}`);
+}
+
+// ── customer.subscription.resumed ───────────────────────────────────────────
+async function handleSubscriptionResumed(
+  subscription: Stripe.Subscription,
+  supabase: ReturnType<typeof createClient>,
+) {
+  await supabase.from('assinaturas')
+    .update({ status: 'ativa', cancelamento_agendado: false, data_cancelamento_agendado: null })
+    .eq('stripe_subscription_id', subscription.id);
+  console.log(`[subscription.resumed] Assinatura retomada para sub ${subscription.id}`);
+}
+
+// ── charge.refunded ──────────────────────────────────────────────────────────
+async function handleChargeRefunded(
+  charge: Stripe.Charge,
+  supabase: ReturnType<typeof createClient>,
+) {
+  const chargeId = charge.id;
+
+  // Atualizar cobrança pelo transacao_id (payment_intent) ou charge_id
+  const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : null;
+
+  if (paymentIntentId) {
+    await supabase.from('cobrancas_assinatura')
+      .update({ status: 'estornado' })
+      .eq('transacao_id', paymentIntentId);
+  }
+
+  // Atualizar pedido vinculado ao payment_intent
+  if (paymentIntentId) {
+    const { data: pedido } = await supabase
+      .from('pedidos')
+      .select('id')
+      .eq('forma_pagamento', 'Stripe — Assinatura')
+      .ilike('numero', 'DM-%')
+      .maybeSingle();
+
+    // Busca mais precisa pelo ciclo vinculado à cobrança
+    const { data: cob } = await supabase
+      .from('cobrancas_assinatura')
+      .select('id')
+      .eq('transacao_id', paymentIntentId)
+      .maybeSingle();
+
+    if (cob?.id) {
+      await supabase.from('pedidos')
+        .update({ status: 'reembolsado' })
+        .eq('ciclo_id', (
+          await supabase.from('ciclos_assinatura')
+            .select('id')
+            .eq('cobranca_id', cob.id)
+            .maybeSingle()
+        ).data?.id ?? '');
+    }
+    void pedido; // used only for type narrowing above
+  }
+
+  console.log(`[charge.refunded] Cobrança estornada: charge=${chargeId} payment_intent=${paymentIntentId}`);
 }

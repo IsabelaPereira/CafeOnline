@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus } from 'lucide-react';
+import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus, Pause, Play, XCircle, RotateCcw, CreditCard, Calendar } from 'lucide-react';
 import {
   Card, Badge, SearchBar, FilterBar, Select, Pagination,
   Modal, Button, SectionHeader, StatCard, Tabs, Input
 } from '../../components/ui';
-import { getAssinaturas, getPlanos, updatePlano, createPlano } from '../../services/assinaturas.service';
+import { getAssinaturas, getPlanos, updatePlano, createPlano, manageAssinatura } from '../../services/assinaturas.service';
 import { supabase } from '../../lib/supabase';
 import type { Assinatura, PlanoAssinatura } from '../../types';
 
@@ -26,6 +26,9 @@ export function AdminAssinaturas() {
   const [criandoPlano, setCriandoPlano] = useState(false);
   const [formPlano, setFormPlano] = useState({ nome: '', descricao: '', preco: '', beneficios: '' as string, ativo: true, destaque: false, ordem: 0, stripePriceId: '' });
   const [salvandoPlano, setSalvandoPlano] = useState(false);
+  const [acaoEmAndamento, setAcaoEmAndamento] = useState<string | null>(null);
+  const [confirmCancelar, setConfirmCancelar] = useState<{ tipo: 'agendado' | 'imediato' } | null>(null);
+  const [motivoCancelamento, setMotivoCancelamento] = useState('');
   const perPage = 10;
 
   function abrirEditarPlano(plano: PlanoAssinatura) {
@@ -102,10 +105,37 @@ export function AdminAssinaturas() {
       } else {
         alert(`Erro ao gerar link: ${json.error ?? 'Erro desconhecido'}`);
       }
-    } catch (err) {
+    } catch {
       alert('Erro ao contatar o servidor. Tente novamente.');
     } finally {
       setReprocessando(null);
+    }
+  }
+
+  async function handleAcao(acao: string, assinaturaId: string, motivo?: string) {
+    setAcaoEmAndamento(acao);
+    try {
+      const result = await manageAssinatura(assinaturaId, acao as Parameters<typeof manageAssinatura>[1], motivo);
+      if (result.error) {
+        alert(`Erro: ${result.error}`);
+        return;
+      }
+      if (result.url) {
+        // billing_portal
+        window.open(result.url, '_blank');
+        return;
+      }
+      // Recarregar lista
+      const updated = await getAssinaturas();
+      setAssinaturas(updated);
+      const updatedSelected = updated.find(a => a.id === assinaturaId) ?? null;
+      setSelected(updatedSelected);
+      setConfirmCancelar(null);
+      setMotivoCancelamento('');
+    } catch {
+      alert('Erro ao executar ação. Tente novamente.');
+    } finally {
+      setAcaoEmAndamento(null);
     }
   }
 
@@ -475,6 +505,43 @@ export function AdminAssinaturas() {
         </div>
       </Modal>
 
+      {/* Modal — confirmar cancelamento */}
+      <Modal
+        open={!!confirmCancelar && !!selected}
+        onClose={() => { setConfirmCancelar(null); setMotivoCancelamento(''); }}
+        title={confirmCancelar?.tipo === 'agendado' ? 'Cancelar ao fim do período' : 'Cancelar imediatamente'}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-charcoal-600">
+            {confirmCancelar?.tipo === 'agendado'
+              ? 'A assinatura continuará ativa até o fim do período atual e não será renovada.'
+              : 'A assinatura será cancelada imediatamente no Stripe. Esta ação não pode ser desfeita.'}
+          </p>
+          <Input
+            label="Motivo do cancelamento (opcional)"
+            value={motivoCancelamento}
+            onChange={e => setMotivoCancelamento(e.target.value)}
+            placeholder="Ex: Solicitação do cliente"
+          />
+          <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+            <Button variant="ghost" onClick={() => { setConfirmCancelar(null); setMotivoCancelamento(''); }}>
+              Voltar
+            </Button>
+            <Button
+              variant="danger"
+              loading={acaoEmAndamento === 'cancel_at_period_end' || acaoEmAndamento === 'cancel_now'}
+              onClick={() => selected && handleAcao(
+                confirmCancelar?.tipo === 'agendado' ? 'cancel_at_period_end' : 'cancel_now',
+                selected.id,
+                motivoCancelamento || undefined,
+              )}
+            >
+              {confirmCancelar?.tipo === 'agendado' ? 'Confirmar agendamento' : 'Cancelar agora'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Detail Modal */}
       <Modal
         open={!!selected}
@@ -520,22 +587,111 @@ export function AdminAssinaturas() {
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex flex-wrap gap-3 pt-2 border-t border-cream-200">
-              <Button variant="secondary" size="sm">Trocar plano</Button>
-              <Button variant="secondary" size="sm">Alterar endereço</Button>
-              {selected.status === 'inadimplente' && (
+            {/* Cancelamento agendado */}
+            {selected.cancelamentoAgendado && selected.dataCancelamentoAgendado && (
+              <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-sm text-sm">
+                <span className="text-amber-700 flex items-center gap-2">
+                  <Calendar size={14} />
+                  Cancelamento agendado para {new Date(selected.dataCancelamentoAgendado).toLocaleDateString('pt-BR')}
+                </span>
                 <Button
-                  variant="primary"
+                  variant="secondary"
                   size="sm"
-                  loading={reprocessando === selected.id}
-                  onClick={() => handleReprocessar(selected.id)}
-                  icon={<RefreshCw size={14} />}
+                  loading={acaoEmAndamento === 'reactivate'}
+                  onClick={() => handleAcao('reactivate', selected.id)}
+                  icon={<RotateCcw size={13} />}
                 >
-                  Reprocessar pagamento
+                  Reverter
+                </Button>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-cream-200">
+              {/* Pausar / Retomar */}
+              {selected.status === 'ativa' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={acaoEmAndamento === 'pause'}
+                  onClick={() => handleAcao('pause', selected.id)}
+                  icon={<Pause size={13} />}
+                >
+                  Pausar cobrança
                 </Button>
               )}
-              <Button variant="danger" size="sm">Cancelar assinatura</Button>
+              {selected.status === 'pausada' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={acaoEmAndamento === 'resume'}
+                  onClick={() => handleAcao('resume', selected.id)}
+                  icon={<Play size={13} />}
+                >
+                  Retomar
+                </Button>
+              )}
+
+              {/* Tentar cobrar / Gerar link (inadimplente) */}
+              {selected.status === 'inadimplente' && (
+                <>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={acaoEmAndamento === 'retry_invoice'}
+                    onClick={() => handleAcao('retry_invoice', selected.id)}
+                    icon={<CreditCard size={13} />}
+                  >
+                    Tentar cobrar agora
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={reprocessando === selected.id}
+                    onClick={() => handleReprocessar(selected.id)}
+                    icon={<RefreshCw size={13} />}
+                  >
+                    Gerar link de pagamento
+                  </Button>
+                </>
+              )}
+
+              {/* Portal do cliente */}
+              {selected.stripeSubscriptionId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={acaoEmAndamento === 'billing_portal'}
+                  onClick={() => handleAcao('billing_portal', selected.id)}
+                  icon={<ExternalLink size={13} />}
+                >
+                  Portal Stripe
+                </Button>
+              )}
+
+              {/* Cancelar */}
+              {selected.status !== 'cancelada' && !selected.cancelamentoAgendado && (
+                <>
+                  {selected.status === 'ativa' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmCancelar({ tipo: 'agendado' })}
+                      icon={<Calendar size={13} />}
+                    >
+                      Cancelar ao fim do período
+                    </Button>
+                  )}
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => setConfirmCancelar({ tipo: 'imediato' })}
+                    icon={<XCircle size={13} />}
+                  >
+                    Cancelar agora
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         )}

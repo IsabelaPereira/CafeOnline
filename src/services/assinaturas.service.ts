@@ -26,8 +26,10 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
     proximaCobranca: r.proxima_cobranca ?? '', proximoEnvio: r.proximo_envio ?? '',
     dataInicio: r.data_inicio, dataFim: r.data_fim ?? undefined,
     motivoCancelamento: r.motivo_cancelamento ?? undefined,
-    stripeSubscriptionId: r.stripe_subscription_id ?? undefined,
-    stripePriceId:        r.stripe_price_id ?? undefined,
+    stripeSubscriptionId:       r.stripe_subscription_id ?? undefined,
+    stripePriceId:              r.stripe_price_id ?? undefined,
+    cancelamentoAgendado:       r.cancelamento_agendado ?? false,
+    dataCancelamentoAgendado:   r.data_cancelamento_agendado ?? undefined,
     historicoCobrancas: (r.cobrancas ?? []).map((c: any): CobrancaAssinatura => ({
       id: c.id, data: c.data, valor: c.valor, status: c.status as CobrancaAssinatura['status'], tentativas: c.tentativas, transacaoId: c.transacao_id ?? undefined, stripeInvoiceId: c.stripe_invoice_id ?? undefined,
     })),
@@ -53,7 +55,7 @@ const BASE_SELECT = `*, plano:planos(*), endereco:enderecos(*), cobrancas:cobran
 const CLIENT_SELECT = [
   'status, id, cliente_id, plano_id, preferencia_cafe, tipo_moagem',
   'endereco_id, frete, total_mensal, proxima_cobranca, proximo_envio',
-  'data_inicio, data_fim, motivo_cancelamento, stripe_subscription_id, stripe_price_id, created_at',
+  'data_inicio, data_fim, motivo_cancelamento, stripe_subscription_id, stripe_price_id, created_at, cancelamento_agendado, data_cancelamento_agendado',
   'plano:planos(id, nome, descricao, preco, beneficios, destaque, ativo, ordem, stripe_price_id)',
   'endereco:enderecos(id, apelido, cep, logradouro, numero, complemento, bairro, cidade, estado, padrao)',
   'cobrancas:cobrancas_assinatura(id, data, valor, status, tentativas, transacao_id, stripe_invoice_id)',
@@ -178,6 +180,38 @@ export async function updatePlano(id: string, patch: Partial<Pick<PlanoAssinatur
   }
   const { error } = await supabase.from('planos').update(dbPatch).eq('id', id);
   if (error) throw error;
+}
+
+export type ManageAction =
+  | 'pause'
+  | 'resume'
+  | 'cancel_at_period_end'
+  | 'cancel_now'
+  | 'reactivate'
+  | 'retry_invoice'
+  | 'billing_portal';
+
+/** Chama a edge function manage-subscription e retorna o resultado. */
+export async function manageAssinatura(
+  assinaturaId: string,
+  action: ManageAction,
+  motivo?: string,
+): Promise<{ success?: boolean; url?: string; cancelDate?: string; invoiceStatus?: string; error?: string }> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token ?? supabaseKey;
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/manage-subscription`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseKey,
+    },
+    body: JSON.stringify({ assinatura_id: assinaturaId, action, motivo }),
+  });
+  return res.json();
 }
 
 export async function createPlano(p: Pick<PlanoAssinatura, 'nome' | 'descricao' | 'preco' | 'beneficios' | 'destaque' | 'ativo' | 'ordem'>): Promise<PlanoAssinatura> {
