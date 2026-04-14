@@ -9,10 +9,41 @@ function mapEndereco(e: Record<string, string>): Endereco {
   };
 }
 
-function mapPedido(r: any): Pedido {
+async function resolverClienteNomes(
+  clienteIds: string[],
+): Promise<Map<string, { name: string; email: string }>> {
+  if (!clienteIds.length) return new Map();
+  const { data: clientes } = await supabase
+    .from('clientes').select('id, user_id').in('id', clienteIds);
+  if (!clientes?.length) return new Map();
+  const userIds = (clientes as any[]).map(c => c.user_id).filter(Boolean);
+  const { data: profiles } = await supabase
+    .from('profiles').select('id, name, email').in('id', userIds);
+  const pMap = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+  const result = new Map<string, { name: string; email: string }>();
+  for (const c of clientes as any[]) {
+    const p = pMap.get(c.user_id);
+    if (p) result.set(c.id, { name: p.name ?? '', email: p.email ?? '' });
+  }
+  return result;
+}
+
+export async function buscarClientePorEmail(
+  email: string,
+): Promise<{ clienteId: string; nome: string } | null> {
+  const { data: profile } = await supabase
+    .from('profiles').select('id, name').ilike('email', email).maybeSingle();
+  if (!profile) return null;
+  const { data: cliente } = await supabase
+    .from('clientes').select('id').eq('user_id', (profile as any).id).maybeSingle();
+  if (!cliente) return null;
+  return { clienteId: (cliente as any).id, nome: (profile as any).name ?? email };
+}
+
+function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedido {
   return {
     id: r.id, numero: r.numero, clienteId: r.cliente_id ?? '',
-    cliente: r.profile ? { name: r.profile.name, email: r.profile.email } : undefined,
+    cliente: clienteInfo ?? (r.profile ? { name: r.profile.name, email: r.profile.email } : undefined),
     itens: (r.itens ?? []).map((item: any) => ({
       id: item.id, produtoId: item.produto_id ?? '',
       produto: { nome: item.nome_produto, sku: item.sku_produto ?? '' },
@@ -43,31 +74,40 @@ export async function getPedidos(clienteId?: string): Promise<Pedido[]> {
   if (clienteId) q = q.eq('cliente_id', clienteId);
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []).map(r => mapPedido(r));
+  const rows = data ?? [];
+  const ids = [...new Set(rows.map((r: any) => r.cliente_id).filter(Boolean))] as string[];
+  const clienteMap = await resolverClienteNomes(ids);
+  return rows.map((r: any) => mapPedido(r, clienteMap.get(r.cliente_id)));
 }
 
 export async function getPedido(id: string): Promise<Pedido | null> {
   const { data, error } = await supabase.from('pedidos').select(PEDIDO_SELECT).eq('id', id).single();
   if (error) return null;
-  return mapPedido(data);
+  const clienteMap = await resolverClienteNomes([data.cliente_id].filter(Boolean));
+  return mapPedido(data, clienteMap.get(data.cliente_id));
 }
 
 export async function createPedido(pedido: {
-  clienteId?: string; itens: { produtoId: string; nomeProduto: string; skuProduto: string; quantidade: number; precoUnitario: number }[];
+  clienteId?: string;
+  itens: { produtoId?: string; nomeProduto: string; skuProduto: string; quantidade: number; precoUnitario: number }[];
   subtotal: number; frete: number; desconto: number; total: number;
   enderecoEntrega: Endereco; formaPagamento: string; cupom?: string;
+  status?: Pedido['status'];
+  observacoes?: string;
 }): Promise<Pedido> {
   const numero = `DM-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
   const { data: ped, error: pedErr } = await supabase.from('pedidos').insert({
-    numero, cliente_id: pedido.clienteId, subtotal: pedido.subtotal,
-    frete: pedido.frete, desconto: pedido.desconto, total: pedido.total,
-    status: 'pendente', endereco_entrega: pedido.enderecoEntrega,
-    forma_pagamento: pedido.formaPagamento, cupom: pedido.cupom,
+    numero, cliente_id: pedido.clienteId ?? null,
+    subtotal: pedido.subtotal, frete: pedido.frete, desconto: pedido.desconto, total: pedido.total,
+    status: pedido.status ?? 'pendente',
+    endereco_entrega: pedido.enderecoEntrega,
+    forma_pagamento: pedido.formaPagamento, cupom: pedido.cupom ?? null,
+    observacoes: pedido.observacoes ?? null,
   }).select().single();
   if (pedErr) throw pedErr;
 
   const itens = pedido.itens.map(i => ({
-    pedido_id: ped.id, produto_id: i.produtoId, nome_produto: i.nomeProduto,
+    pedido_id: ped.id, produto_id: i.produtoId ?? null, nome_produto: i.nomeProduto,
     sku_produto: i.skuProduto, quantidade: i.quantidade,
     preco_unitario: i.precoUnitario, subtotal: i.quantidade * i.precoUnitario,
   }));

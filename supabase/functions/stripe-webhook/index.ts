@@ -117,7 +117,19 @@ async function handleCheckoutComplete(
   stripe: Stripe,
   supabase: ReturnType<typeof createClient>,
 ) {
-  if (session.mode !== 'subscription') return;
+  // ── Pedido da loja (mode: payment) ──────────────────────────────────────────
+  if (session.mode !== 'subscription') {
+    const pedidoId = session.metadata?.pedido_id;
+    if (!pedidoId) {
+      console.log('[checkout.session.completed] payment sem pedido_id no metadata — ignorando');
+      return;
+    }
+    await supabase.from('pedidos').update({ status: 'pago' }).eq('id', pedidoId);
+    console.log(`[checkout.session.completed] Pedido ${pedidoId} confirmado como pago via webhook`);
+    return;
+  }
+
+  // ── Assinatura (mode: subscription) ─────────────────────────────────────────
 
   const assinaturaId     = session.metadata?.assinatura_id;
   const stripeSubId      = session.subscription as string | null;
