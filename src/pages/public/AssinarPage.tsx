@@ -127,40 +127,49 @@ export function AssinarPage() {
     setEmailExists(true);
     setIsNewUser(false);
 
+    // Só pré-preenche o nome se for um nome real (não o username auto-gerado do e-mail)
+    const emailUsername = (user.email ?? '').split('@')[0].toLowerCase();
+    const nomeReal = (user.name && user.name.toLowerCase() !== emailUsername) ? user.name : '';
+    if (nomeReal) setDados(d => ({ ...d, nome: nomeReal }));
+
     getClienteByUserId(user.id).then(cliente => {
-      if (!cliente) return;
-      setClienteId(cliente.id);
-      setStripeCustomerId((cliente as any).stripe_customer_id ?? null);
+      if (cliente) {
+        setClienteId(cliente.id);
+        setStripeCustomerId((cliente as any).stripe_customer_id ?? null);
 
-      // Pre-fill dados
-      setDados(d => ({
-        ...d,
-        nome:    user.name ?? '',
-        celular: cliente.phone ?? '',
-        cpf:     cliente.cpf ?? '',
-      }));
+        // Pre-fill dados com informações salvas
+        setDados(d => ({
+          ...d,
+          nome:    nomeReal,
+          celular: cliente.phone ?? '',
+          cpf:     cliente.cpf ?? '',
+        }));
 
-      // Pre-fill preferências salvas
-      if (cliente.preferenciaCafe) {
-        setPreferencias({
-          tipo:    cliente.preferenciaCafe,
-          moagem:  cliente.tipoMoagem ?? 'medio',
-        });
+        // Pre-fill preferências salvas
+        if (cliente.preferenciaCafe) {
+          setPreferencias({
+            tipo:   cliente.preferenciaCafe,
+            moagem: cliente.tipoMoagem ?? 'medio',
+          });
+        }
+
+        // Carregar endereços salvos
+        if (cliente.enderecos?.length > 0) {
+          setEnderecosSalvos(cliente.enderecos);
+          const padrao = cliente.enderecos.find(e => e.padrao) ?? cliente.enderecos[0];
+          selecionarEnderecoSalvo(padrao, cliente.enderecos);
+        }
+
+        // Navegar para o passo correto se dados já completos
+        const temDados = !!(nomeReal && cliente.phone);
+        if (temDados && planoId) {
+          skipTo('preferencias', new Set<FlowStep>(['email', 'dados']));
+          return;
+        }
       }
 
-      // Carregar endereços salvos
-      if (cliente.enderecos?.length > 0) {
-        setEnderecosSalvos(cliente.enderecos);
-        // Seleciona o endereço padrão por default
-        const padrao = cliente.enderecos.find(e => e.padrao) ?? cliente.enderecos[0];
-        selecionarEnderecoSalvo(padrao, cliente.enderecos);
-      }
-
-      // Navegar para o passo correto
-      const temDados = !!(user.name && user.name !== user.email?.split('@')[0] && cliente.phone);
-      if (temDados && planoId) {
-        skipTo('preferencias', new Set<FlowStep>(['email', 'dados']));
-      } else if (planoId) {
+      // Se não tem cliente ou faltam dados, vai para 'dados'
+      if (planoId) {
         skipTo('dados', new Set<FlowStep>(['email']));
       }
     }).catch(() => {});
@@ -309,13 +318,20 @@ export function AssinarPage() {
     setUserId(data.user.id);
     await salvarLead('checkout_iniciado');
 
+    // Busca nome real da tabela profiles (user_metadata pode conter username auto-gerado)
+    const { data: profileRow } = await supabase.from('profiles').select('name').eq('id', data.user.id).single();
+    const emailUsername = email.split('@')[0].toLowerCase();
+    const nomePerfil = (profileRow?.name && profileRow.name.toLowerCase() !== emailUsername)
+      ? profileRow.name
+      : '';
+    if (nomePerfil) setDados(d => ({ ...d, nome: nomePerfil }));
+
     const cliente = await getClienteByUserId(data.user.id).catch(() => null);
     if (cliente) {
       setClienteId(cliente.id);
       setStripeCustomerId((cliente as any).stripe_customer_id ?? null);
 
-      // Pre-fill dados
-      const nomePerfil = data.user.user_metadata?.name ?? '';
+      // Pre-fill dados com informações salvas
       setDados(d => ({ ...d, nome: nomePerfil, celular: cliente.phone ?? '', cpf: cliente.cpf ?? '' }));
 
       // Pre-fill preferências
@@ -330,7 +346,7 @@ export function AssinarPage() {
         selecionarEnderecoSalvo(padrao, cliente.enderecos);
       }
 
-      const temDados = !!(nomePerfil && nomePerfil !== email.split('@')[0] && cliente.phone);
+      const temDados = !!(nomePerfil && cliente.phone);
       if (temDados) {
         skipTo('preferencias', new Set<FlowStep>(['dados']));
         return;
@@ -363,22 +379,29 @@ export function AssinarPage() {
       if (isNewUser && dados.senhaNovo) await supabase.auth.updateUser({ password: dados.senhaNovo });
       await supabase.from('profiles').update({ name: dados.nome.trim() }).eq('id', userId);
 
-      if (clienteId) {
+      let theClienteId = clienteId;
+      if (theClienteId) {
         await supabase.from('clientes').update({
           phone: dados.celular.replace(/\D/g, ''), cpf: dados.cpf || null,
-        }).eq('id', clienteId);
+        }).eq('id', theClienteId);
       } else {
         const { data: c, error: cErr } = await supabase.from('clientes').insert({
           user_id: userId, phone: dados.celular.replace(/\D/g, ''), cpf: dados.cpf || null, preferencia_cafe: 'grao',
         }).select('id').single();
         if (cErr) throw new Error(`Erro ao criar perfil: ${cErr.message}`);
+        theClienteId = c.id;
         setClienteId(c.id);
       }
 
-      await upsertLeadByEmail({
+      // Atualiza o lead com nome, telefone e cliente_id
+      const leadIdAtual = await upsertLeadByEmail({
         email, etapa: 'checkout_iniciado',
         nome: dados.nome.trim(), telefone: dados.celular.replace(/\D/g, ''),
-      }).catch(() => {});
+      }).catch(() => null);
+      if (leadIdAtual && theClienteId) {
+        void supabase.from('leads').update({ cliente_id: theClienteId }).eq('id', leadIdAtual);
+        setLeadId(leadIdAtual);
+      }
 
       setErrors({});
       setStep('preferencias');
@@ -693,6 +716,7 @@ export function AssinarPage() {
                 value={dados.cpf}
                 onChange={e => setDados(d => ({ ...d, cpf: e.target.value }))}
                 placeholder="000.000.000-00"
+                autoComplete="off"
               />
               {isNewUser && (
                 <>

@@ -3,6 +3,7 @@ import { User, Mail, Phone, Coffee, Edit2, Save, X, Lock } from 'lucide-react';
 import { Card, Button, Input, Select, Alert } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { getClienteByUserId, updateClientePreferencias } from '../../services/clientes.service';
+import { supabase } from '../../lib/supabase';
 import type { Cliente } from '../../types';
 
 export function ClientPerfil() {
@@ -10,7 +11,17 @@ export function ClientPerfil() {
   const [cliente, setCliente] = useState<Cliente | null>(null);
 
   useEffect(() => {
-    if (user) getClienteByUserId(user.id).then(setCliente).catch(console.error);
+    if (user) getClienteByUserId(user.id).then(c => {
+      setCliente(c);
+      if (c) setForm(f => ({
+        ...f,
+        phone:     c.phone ?? '',
+        cpf:       c.cpf ?? '',
+        birthdate: c.birthdate ?? '',
+        preferenciaCafe: c.preferenciaCafe ?? 'grao',
+        tipoMoagem:      c.tipoMoagem ?? '',
+      }));
+    }).catch(console.error);
   }, [user]);
 
   const [editando, setEditando] = useState(false);
@@ -22,6 +33,7 @@ export function ClientPerfil() {
     name: user?.name ?? '',
     email: user?.email ?? '',
     phone: cliente?.phone ?? '',
+    cpf: cliente?.cpf ?? '',
     birthdate: cliente?.birthdate ?? '',
     preferenciaCafe: cliente?.preferenciaCafe ?? 'grao' as 'grao' | 'moido',
     tipoMoagem: cliente?.tipoMoagem ?? '',
@@ -41,8 +53,24 @@ export function ClientPerfil() {
 
   async function handleSalvar() {
     setSalvando(true);
-    if (cliente) {
-      await updateClientePreferencias(cliente.id, form.preferenciaCafe, form.tipoMoagem || undefined).catch(console.error);
+    try {
+      // Atualiza nome no perfil de autenticação
+      if (user) {
+        await supabase.from('profiles').update({ name: form.name.trim() }).eq('id', user.id);
+      }
+
+      if (cliente) {
+        // Atualiza dados pessoais e preferências do cliente
+        await supabase.from('clientes').update({
+          phone:            form.phone.replace(/\D/g, '') || null,
+          cpf:              form.cpf.replace(/\D/g, '') || null,
+          birthdate:        form.birthdate || null,
+          preferencia_cafe: form.preferenciaCafe,
+          tipo_moagem:      form.tipoMoagem || null,
+        }).eq('id', cliente.id);
+      }
+    } catch (e) {
+      console.error(e);
     }
     setSalvando(false);
     setEditando(false);
@@ -135,6 +163,13 @@ export function ClientPerfil() {
               value={form.phone}
               onChange={e => handleChange('phone', e.target.value)}
               placeholder="(11) 99999-9999"
+            />
+            <Input
+              label="CPF (opcional)"
+              value={form.cpf}
+              onChange={e => handleChange('cpf', e.target.value)}
+              placeholder="000.000.000-00"
+              autoComplete="off"
             />
             <Input
               label="Data de nascimento"

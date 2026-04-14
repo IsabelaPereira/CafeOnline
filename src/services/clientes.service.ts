@@ -18,10 +18,29 @@ function mapCliente(r: any): Cliente {
   };
 }
 
+// Colunas base sem embedded joins — evita bug do Supabase JS que remove o primeiro
+// item do select quando há embedded resources (enderecos, profiles).
+const BASE_COLS = 'phone, id, user_id, cpf, birthdate, preferencia_cafe, tipo_moagem, created_at';
+
+/** Busca cliente + endereços em queries separadas para evitar bug do Supabase JS. */
+async function fetchClienteComEnderecos(row: any): Promise<Cliente> {
+  const { data: enderecos } = await supabase
+    .from('enderecos')
+    .select('*')
+    .eq('cliente_id', row.id)
+    .order('padrao', { ascending: false });
+
+  // stripe_customer_id fica em campo separado — lido via coluna se migration já executada
+  const stripeId: string | null = (row as any).stripe_customer_id ?? null;
+
+  return mapCliente({ ...row, enderecos: enderecos ?? [], stripe_customer_id: stripeId });
+}
+
 export async function getClientes(): Promise<Cliente[]> {
+  // Para listagem admin: usa join de profiles (panel admin já rodou as migrations)
   const { data, error } = await supabase
     .from('clientes')
-    .select('*, profile:profiles(name, email), enderecos(*)')
+    .select('phone, id, user_id, cpf, birthdate, preferencia_cafe, tipo_moagem, created_at, profile:profiles(name, email), enderecos(*)')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map(mapCliente);
@@ -30,19 +49,33 @@ export async function getClientes(): Promise<Cliente[]> {
 export async function getClienteByUserId(userId: string): Promise<Cliente | null> {
   const { data, error } = await supabase
     .from('clientes')
-    .select('*, profile:profiles(name, email), enderecos(*)')
-    .eq('user_id', userId).single();
+    .select(BASE_COLS)
+    .eq('user_id', userId)
+    .single();
   if (error) return null;
-  return mapCliente(data);
+
+  // Tenta ler stripe_customer_id separadamente (só existe após migration 004)
+  let stripeCustomerId: string | null = null;
+  try {
+    const { data: extra } = await supabase
+      .from('clientes')
+      .select('stripe_customer_id')
+      .eq('id', data.id)
+      .single();
+    stripeCustomerId = (extra as any)?.stripe_customer_id ?? null;
+  } catch { /* coluna ainda não existe */ }
+
+  return fetchClienteComEnderecos({ ...data, stripe_customer_id: stripeCustomerId });
 }
 
 export async function getCliente(id: string): Promise<Cliente | null> {
   const { data, error } = await supabase
     .from('clientes')
-    .select('*, profile:profiles(name, email), enderecos(*)')
-    .eq('id', id).single();
+    .select(BASE_COLS)
+    .eq('id', id)
+    .single();
   if (error) return null;
-  return mapCliente(data);
+  return fetchClienteComEnderecos(data);
 }
 
 export async function createCliente(c: { userId: string; phone?: string; cpf?: string; preferenciaCafe?: 'grao' | 'moido'; tipoMoagem?: string }): Promise<string> {
