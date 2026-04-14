@@ -18,7 +18,12 @@ export interface CheckoutResult {
 }
 
 export async function createCheckoutSession(params: {
-  items: CheckoutItem[];
+  /** Itens de preço avulso — para mode: 'payment' (loja) */
+  items?: CheckoutItem[];
+  /** Price ID do Stripe — para mode: 'subscription' (assinatura recorrente) */
+  priceId?: string;
+  /** 'payment' para compras únicas; 'subscription' para cobranças recorrentes */
+  mode?: 'payment' | 'subscription';
   successPath: string;
   cancelPath: string;
   metadata?: Record<string, string>;

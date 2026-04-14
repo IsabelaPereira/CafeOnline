@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Package, Star } from 'lucide-react';
-import { updateAssinaturaStatus, registrarCobrancaInicial } from '../../services/assinaturas.service';
+import { updateAssinaturaStatus } from '../../services/assinaturas.service';
 import { updatePedidoStatus } from '../../services/pedidos.service';
 import { updateLeadEtapa } from '../../services/leads.service';
 import { supabase } from '../../lib/supabase';
@@ -23,12 +23,10 @@ export function SuccessPage() {
     // ── 1. Atualização de status — sempre, direto no banco ───────────────────
     // Funciona após migration 009 (política RLS para cliente ativar própria assinatura)
     if (tipo === 'assinatura') {
-      // Ativa assinatura + registra cobrança inicial (fallback sem Edge Function)
-      tasks.push(
-        updateAssinaturaStatus(id, 'ativa')
-          .then(() => registrarCobrancaInicial(id))
-          .catch(() => {}),
-      );
+      // Ativa assinatura como fallback (o webhook stripe-webhook também faz isso via
+      // checkout.session.completed quando deployado, mas mantemos aqui para garantia).
+      // Cobrança e pedido são criados pelo webhook via invoice.paid — não duplicar aqui.
+      tasks.push(updateAssinaturaStatus(id, 'ativa').catch(() => {}));
     } else {
       tasks.push(updatePedidoStatus(id, 'pago').catch(() => {}));
     }

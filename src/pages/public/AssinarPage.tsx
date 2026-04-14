@@ -556,16 +556,19 @@ export function AssinarPage() {
       sessionStorage.setItem('dsmatas_lead_id',       lId ?? '');
       sessionStorage.setItem('dsmatas_assinatura_id', assId!);
 
-      // 5. Criar sessão Stripe (com customer para cartões salvos)
+      // 5. Criar sessão Stripe — mode: 'subscription' com price_data dinâmico
+      // O total já inclui o frete específico de cada cliente, garantindo que
+      // todas as renovações mensais cobrem o valor correto (plano + frete).
       const { url: stripeUrl, customerId: returnedCustomerId } = await createCheckoutSession({
         items: [{
-          name:   `Assinatura ${planoObj?.nome ?? 'Das Matas'} — 1º mês`,
+          name:   `Assinatura ${planoObj?.nome ?? 'Das Matas'} — mensal`,
           amount: totalMensal,
         }],
-        successPath: `/sucesso?tipo=assinatura&id=${assId}&lead=${lId ?? ''}`,
-        cancelPath:  `/assinar?cancelado=true`,
-        metadata:    { assinatura_id: assId!, cliente_id: clienteId! },
-        customerId:  stripeCustomerId ?? undefined,
+        mode:          'subscription',
+        successPath:   `/sucesso?tipo=assinatura&id=${assId}&lead=${lId ?? ''}`,
+        cancelPath:    `/assinar?cancelado=true`,
+        metadata:      { assinatura_id: assId!, cliente_id: clienteId! },
+        customerId:    stripeCustomerId ?? undefined,
         customerEmail: email,
       });
 

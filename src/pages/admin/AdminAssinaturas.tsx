@@ -24,17 +24,17 @@ export function AdminAssinaturas() {
   const [linkPagamento, setLinkPagamento] = useState<string | null>(null);
   const [editandoPlano, setEditandoPlano] = useState<PlanoAssinatura | null>(null);
   const [criandoPlano, setCriandoPlano] = useState(false);
-  const [formPlano, setFormPlano] = useState({ nome: '', descricao: '', preco: '', beneficios: '' as string, ativo: true, destaque: false, ordem: 0 });
+  const [formPlano, setFormPlano] = useState({ nome: '', descricao: '', preco: '', beneficios: '' as string, ativo: true, destaque: false, ordem: 0, stripePriceId: '' });
   const [salvandoPlano, setSalvandoPlano] = useState(false);
   const perPage = 10;
 
   function abrirEditarPlano(plano: PlanoAssinatura) {
-    setFormPlano({ nome: plano.nome, descricao: plano.descricao ?? '', preco: String(plano.preco), beneficios: plano.beneficios.join('\n'), ativo: plano.ativo, destaque: plano.destaque ?? false, ordem: plano.ordem });
+    setFormPlano({ nome: plano.nome, descricao: plano.descricao ?? '', preco: String(plano.preco), beneficios: plano.beneficios.join('\n'), ativo: plano.ativo, destaque: plano.destaque ?? false, ordem: plano.ordem, stripePriceId: plano.stripePriceId ?? '' });
     setEditandoPlano(plano);
   }
 
   function abrirNovoPano() {
-    setFormPlano({ nome: '', descricao: '', preco: '', beneficios: '', ativo: true, destaque: false, ordem: planos.length + 1 });
+    setFormPlano({ nome: '', descricao: '', preco: '', beneficios: '', ativo: true, destaque: false, ordem: planos.length + 1, stripePriceId: '' });
     setCriandoPlano(true);
   }
 
@@ -47,6 +47,7 @@ export function AdminAssinaturas() {
       ativo: formPlano.ativo,
       destaque: formPlano.destaque,
       ordem: formPlano.ordem,
+      stripePriceId: formPlano.stripePriceId.trim() || undefined,
     };
   }
 
@@ -253,11 +254,17 @@ export function AdminAssinaturas() {
               </div>
               <p className="font-display text-3xl text-charcoal-700 mb-1">R$ {plano.preco}</p>
               <p className="text-sm text-charcoal-400 mb-4">/mês por assinante</p>
-              <div className="flex items-center justify-between text-sm mb-4 p-3 bg-cream-50 rounded-sm">
+              <div className="flex items-center justify-between text-sm mb-3 p-3 bg-cream-50 rounded-sm">
                 <span className="text-charcoal-500">Assinantes ativos</span>
                 <span className="font-medium text-charcoal-700">
                   {assinaturas.filter(a => a.planoId === plano.id && a.status === 'ativa').length}
                 </span>
+              </div>
+              <div className="flex items-center justify-between text-xs mb-4">
+                <span className="text-charcoal-400">Cobrança recorrente</span>
+                {plano.stripePriceId
+                  ? <span className="text-forest-600 font-medium">✓ Configurado</span>
+                  : <span className="text-amber-500">Não configurado</span>}
               </div>
               <Button variant="ghost" size="sm" className="w-full" onClick={() => abrirEditarPlano(plano)}>Editar plano</Button>
             </Card>
@@ -307,6 +314,12 @@ export function AdminAssinaturas() {
                 onChange={e => setFormPlano(p => ({ ...p, ordem: parseInt(e.target.value) || 0 }))}
               />
             </div>
+            <Input
+              label="Stripe Price ID (recorrência mensal)"
+              value={formPlano.stripePriceId}
+              onChange={e => setFormPlano(p => ({ ...p, stripePriceId: e.target.value }))}
+              placeholder="price_xxxxxxxxxxxxxxxxxxxxxxxx"
+            />
             <div>
               <label className="block text-sm font-medium text-charcoal-600 mb-1.5">
                 Benefícios <span className="text-charcoal-400 font-normal">(um por linha)</span>
@@ -383,6 +396,12 @@ export function AdminAssinaturas() {
               onChange={e => setFormPlano(p => ({ ...p, ordem: parseInt(e.target.value) || 0 }))}
             />
           </div>
+          <Input
+            label="Stripe Price ID (recorrência mensal)"
+            value={formPlano.stripePriceId}
+            onChange={e => setFormPlano(p => ({ ...p, stripePriceId: e.target.value }))}
+            placeholder="price_xxxxxxxxxxxxxxxxxxxxxxxx"
+          />
           <div>
             <label className="block text-sm font-medium text-charcoal-600 mb-1.5">
               Benefícios <span className="text-charcoal-400 font-normal">(um por linha)</span>

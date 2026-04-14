@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import type { Assinatura, PlanoAssinatura, Endereco, CicloAssinatura, CobrancaAssinatura, AlteracaoAssinatura } from '../types';
 
 function mapPlano(r: any): PlanoAssinatura {
-  return { id: r.id, nome: r.nome, descricao: r.descricao ?? '', preco: r.preco, beneficios: r.beneficios ?? [], destaque: r.destaque, ativo: r.ativo, ordem: r.ordem };
+  return { id: r.id, nome: r.nome, descricao: r.descricao ?? '', preco: r.preco, beneficios: r.beneficios ?? [], destaque: r.destaque, ativo: r.ativo, ordem: r.ordem, stripePriceId: r.stripe_price_id ?? undefined };
 }
 
 function mapEndereco(r: any): Endereco {
@@ -26,8 +26,10 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
     proximaCobranca: r.proxima_cobranca ?? '', proximoEnvio: r.proximo_envio ?? '',
     dataInicio: r.data_inicio, dataFim: r.data_fim ?? undefined,
     motivoCancelamento: r.motivo_cancelamento ?? undefined,
+    stripeSubscriptionId: r.stripe_subscription_id ?? undefined,
+    stripePriceId:        r.stripe_price_id ?? undefined,
     historicoCobrancas: (r.cobrancas ?? []).map((c: any): CobrancaAssinatura => ({
-      id: c.id, data: c.data, valor: c.valor, status: c.status as CobrancaAssinatura['status'], tentativas: c.tentativas, transacaoId: c.transacao_id ?? undefined,
+      id: c.id, data: c.data, valor: c.valor, status: c.status as CobrancaAssinatura['status'], tentativas: c.tentativas, transacaoId: c.transacao_id ?? undefined, stripeInvoiceId: c.stripe_invoice_id ?? undefined,
     })),
     historicoAlteracoes: (r.alteracoes ?? []).map((a: any): AlteracaoAssinatura => ({
       id: a.id, tipo: a.tipo, de: a.de ?? undefined, para: a.para ?? undefined, data: a.data, usuario: a.usuario ?? '',
@@ -36,6 +38,7 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
       id: c.id, mes: c.mes, ano: c.ano, edicaoId: c.edicao_id ?? undefined,
       status: c.status as CicloAssinatura['status'],
       codigoRastreio: c.codigo_rastreio ?? undefined, dataEnvio: c.data_envio ?? undefined, dataEntrega: c.data_entrega ?? undefined,
+      pedidoId: c.pedido_id ?? undefined, cobrancaId: c.cobranca_id ?? undefined,
     })),
     createdAt: r.created_at,
   };
@@ -50,11 +53,11 @@ const BASE_SELECT = `*, plano:planos(*), endereco:enderecos(*), cobrancas:cobran
 const CLIENT_SELECT = [
   'status, id, cliente_id, plano_id, preferencia_cafe, tipo_moagem',
   'endereco_id, frete, total_mensal, proxima_cobranca, proximo_envio',
-  'data_inicio, data_fim, motivo_cancelamento, created_at',
-  'plano:planos(id, nome, descricao, preco, beneficios, destaque, ativo, ordem)',
+  'data_inicio, data_fim, motivo_cancelamento, stripe_subscription_id, stripe_price_id, created_at',
+  'plano:planos(id, nome, descricao, preco, beneficios, destaque, ativo, ordem, stripe_price_id)',
   'endereco:enderecos(id, apelido, cep, logradouro, numero, complemento, bairro, cidade, estado, padrao)',
-  'cobrancas:cobrancas_assinatura(id, data, valor, status, tentativas, transacao_id)',
-  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id)',
+  'cobrancas:cobrancas_assinatura(id, data, valor, status, tentativas, transacao_id, stripe_invoice_id)',
+  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id)',
 ].join(', ');
 
 /** Busca nome/email/telefone dos clientes em queries simples (sem joins aninhados). */
@@ -167,8 +170,13 @@ export async function getPlanos(): Promise<PlanoAssinatura[]> {
   return (data ?? []).map(mapPlano);
 }
 
-export async function updatePlano(id: string, patch: Partial<Pick<PlanoAssinatura, 'nome' | 'descricao' | 'preco' | 'beneficios' | 'destaque' | 'ativo' | 'ordem'>>): Promise<void> {
-  const { error } = await supabase.from('planos').update(patch).eq('id', id);
+export async function updatePlano(id: string, patch: Partial<Pick<PlanoAssinatura, 'nome' | 'descricao' | 'preco' | 'beneficios' | 'destaque' | 'ativo' | 'ordem' | 'stripePriceId'>>): Promise<void> {
+  const dbPatch: Record<string, unknown> = { ...patch };
+  if ('stripePriceId' in patch) {
+    dbPatch.stripe_price_id = patch.stripePriceId ?? null;
+    delete dbPatch.stripePriceId;
+  }
+  const { error } = await supabase.from('planos').update(dbPatch).eq('id', id);
   if (error) throw error;
 }
 

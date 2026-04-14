@@ -99,6 +99,7 @@ export interface PlanoAssinatura {
   destaque?: boolean;
   ativo: boolean;
   ordem: number;
+  stripePriceId?: string;
 }
 
 // ---- ASSINATURA ----
@@ -124,6 +125,8 @@ export interface Assinatura {
   dataInicio: string;
   dataFim?: string;
   motivoCancelamento?: string;
+  stripeSubscriptionId?: string;
+  stripePriceId?: string;
   historicoCobrancas: CobrancaAssinatura[];
   historicoAlteracoes: AlteracaoAssinatura[];
   ciclos: CicloAssinatura[];
@@ -137,6 +140,7 @@ export interface CobrancaAssinatura {
   status: 'pago' | 'pendente' | 'falhou' | 'estornado';
   tentativas: number;
   transacaoId?: string;
+  stripeInvoiceId?: string;
 }
 
 export interface AlteracaoAssinatura {
@@ -157,6 +161,8 @@ export interface CicloAssinatura {
   codigoRastreio?: string;
   dataEnvio?: string;
   dataEntrega?: string;
+  pedidoId?: string;
+  cobrancaId?: string;
 }
 
 // ---- PRODUTOS ----
@@ -219,6 +225,9 @@ export interface Pedido {
   cupom?: string;
   codigoRastreio?: string;
   observacoes?: string;
+  tipo: 'loja' | 'assinatura';
+  assinaturaId?: string;
+  cicloId?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -23,6 +23,9 @@ function mapPedido(r: any): Pedido {
     enderecoEntrega: mapEndereco(r.endereco_entrega as Record<string, string>),
     formaPagamento: r.forma_pagamento ?? '', cupom: r.cupom ?? undefined,
     codigoRastreio: r.codigo_rastreio ?? undefined, observacoes: r.observacoes ?? undefined,
+    tipo: (r.tipo ?? 'loja') as 'loja' | 'assinatura',
+    assinaturaId: r.assinatura_id ?? undefined,
+    cicloId: r.ciclo_id ?? undefined,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -30,7 +33,8 @@ function mapPedido(r: any): Pedido {
 // Sem '*' e sem joins aninhados — evita bug do Supabase JS de stripping e erros de join
 const PEDIDO_SELECT = [
   'status, id, numero, cliente_id, subtotal, frete, desconto, total',
-  'endereco_entrega, forma_pagamento, cupom, codigo_rastreio, observacoes, created_at, updated_at',
+  'endereco_entrega, forma_pagamento, cupom, codigo_rastreio, observacoes',
+  'tipo, assinatura_id, ciclo_id, created_at, updated_at',
   'itens:itens_pedido(id, produto_id, nome_produto, sku_produto, quantidade, preco_unitario, subtotal)',
 ].join(', ');
 
