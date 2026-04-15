@@ -9,12 +9,12 @@ import {
   Card, Badge, Button, Modal, Input, Select, Textarea, SectionHeader,
   SearchBar, Tabs, Pagination,
 } from '../../components/ui';
-import { getLeads } from '../../services/leads.service';
+import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem } from '../../services/leads.service';
 import { getClientes, updateCliente } from '../../services/clientes.service';
 import { getPedidos } from '../../services/pedidos.service';
 import { getAssinaturasCliente } from '../../services/assinaturas.service';
 import { getReservasCliente } from '../../services/reservas.service';
-import type { Lead, LeadEtapa, Cliente, Pedido, Assinatura, Reserva } from '../../types';
+import type { Lead, LeadEtapa, Cliente, Pedido, Assinatura, Reserva, HistoricoEtapaLead } from '../../types';
 
 // ── Etapas do funil ───────────────────────────────────────────────────────────
 
@@ -153,10 +153,59 @@ export function AdminCRM() {
     pedidos: Pedido[]; assinaturas: Assinatura[]; reservas: Reserva[]; loading: boolean;
   }>({ pedidos: [], assinaturas: [], reservas: [], loading: false });
 
+  // ── Histórico de etapa por lead ────────────────────────────────────────────
+  const [leadHistorico, setLeadHistorico] = useState<Record<string, HistoricoEtapaLead[]>>({});
+  const [leadHistLoading, setLeadHistLoading] = useState<Record<string, boolean>>({});
+  const [deletandoHistorico, setDeletandoHistorico] = useState<string | null>(null);
+
+  async function carregarHistoricoLead(leadId: string) {
+    if (leadHistorico[leadId] !== undefined) return; // já carregado
+    setLeadHistLoading(prev => ({ ...prev, [leadId]: true }));
+    try {
+      const hist = await getHistoricoEtapaLead(leadId);
+      setLeadHistorico(prev => ({ ...prev, [leadId]: hist }));
+    } catch {
+      setLeadHistorico(prev => ({ ...prev, [leadId]: [] }));
+    } finally {
+      setLeadHistLoading(prev => ({ ...prev, [leadId]: false }));
+    }
+  }
+
+  async function handleDeletarHistoricoTodo(leadId: string) {
+    if (!confirm('Apagar todo o histórico de etapas deste lead?')) return;
+    setDeletandoHistorico(leadId);
+    try {
+      await deleteHistoricoEtapaLead(leadId);
+      setLeadHistorico(prev => ({ ...prev, [leadId]: [] }));
+    } catch {
+      alert('Erro ao apagar histórico.');
+    } finally {
+      setDeletandoHistorico(null);
+    }
+  }
+
+  async function handleDeletarHistoricoItem(leadId: string, itemId: string) {
+    setDeletandoHistorico(itemId);
+    try {
+      await deleteHistoricoEtapaItem(itemId);
+      setLeadHistorico(prev => ({
+        ...prev,
+        [leadId]: (prev[leadId] ?? []).filter(h => h.id !== itemId),
+      }));
+    } catch {
+      alert('Erro ao apagar entrada do histórico.');
+    } finally {
+      setDeletandoHistorico(null);
+    }
+  }
+
   useEffect(() => {
     if (!selectedCliente) return;
     setCliDetalheTab('dados');
     setCliHist({ pedidos: [], assinaturas: [], reservas: [], loading: true });
+    // Limpa cache de histórico ao trocar de cliente
+    setLeadHistorico({});
+    setLeadHistLoading({});
     Promise.all([
       getPedidos(selectedCliente.id),
       getAssinaturasCliente(selectedCliente.id),
@@ -180,6 +229,17 @@ export function AdminCRM() {
     l.email.toLowerCase().includes(search.toLowerCase())
   );
   const leadsPorEtapa = (etapa: LeadEtapa) => filteredLeads.filter(l => l.etapa === etapa);
+
+  // Leads vinculados ao cliente selecionado (derivado fora do modal)
+  const clienteLeadsAtual = selectedCliente
+    ? leads.filter(l => l.clienteId === selectedCliente.id || l.email === selectedCliente.email)
+    : [];
+
+  // Carrega histórico de etapas quando aba funil é aberta
+  useEffect(() => {
+    if (cliDetalheTab !== 'funil' || clienteLeadsAtual.length === 0) return;
+    clienteLeadsAtual.forEach(l => carregarHistoricoLead(l.id));
+  }, [cliDetalheTab, selectedCliente?.id]);
 
   // ── Filtros clientes ───────────────────────────────────────────────────────
   const filteredCli = clientes.filter(c => {
@@ -593,9 +653,7 @@ export function AdminCRM() {
             solicitada: 'Solicitada', confirmada: 'Confirmada', cancelada: 'Cancelada',
             concluida: 'Concluída', no_show: 'No-show',
           };
-          const clienteLeads = leads.filter(l =>
-            l.clienteId === selectedCliente.id || l.email === selectedCliente.email,
-          );
+          const clienteLeads = clienteLeadsAtual;
 
           const tabs = [
             { id: 'dados',       label: 'Dados',         icon: <Users size={13} /> },
@@ -802,6 +860,9 @@ export function AdminCRM() {
                     <div className="space-y-4">
                       {clienteLeads.map(lead => {
                         const etapa = etapas.find(e => e.id === lead.etapa);
+                        const hist  = leadHistorico[lead.id];
+                        const histLoading = leadHistLoading[lead.id];
+
                         return (
                           <div key={lead.id} className="p-4 bg-cream-50 rounded-sm border border-cream-100 space-y-3">
                             {/* Cabeçalho */}
@@ -812,6 +873,7 @@ export function AdminCRM() {
                               </div>
                               <span className={`px-2 py-0.5 text-xs rounded border font-medium ${etapa?.color}`}>{etapa?.label}</span>
                             </div>
+
                             {/* Detalhes */}
                             <div className="grid grid-cols-2 gap-2 text-xs text-charcoal-500">
                               <span>Origem: <strong className="text-charcoal-700 capitalize">{lead.origem}</strong></span>
@@ -819,6 +881,7 @@ export function AdminCRM() {
                               {lead.responsavel && <span>Responsável: <strong className="text-charcoal-700">{lead.responsavel}</strong></span>}
                               <span>Lead desde: <strong className="text-charcoal-700">{new Date(lead.createdAt).toLocaleDateString('pt-BR')}</strong></span>
                             </div>
+
                             {/* Tags */}
                             {lead.tags.length > 0 && (
                               <div className="flex flex-wrap gap-1">
@@ -827,11 +890,100 @@ export function AdminCRM() {
                                 ))}
                               </div>
                             )}
+
+                            {/* ── Histórico de etapas ─────────────────────── */}
+                            <div className="border-t border-cream-200 pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider">
+                                  Histórico de etapas no funil
+                                  {hist && hist.length > 0 && (
+                                    <span className="ml-1.5 text-[10px] bg-cream-200 text-charcoal-500 rounded-full px-1.5 py-0.5">{hist.length}</span>
+                                  )}
+                                </p>
+                                {hist && hist.length > 0 && (
+                                  <button
+                                    onClick={() => handleDeletarHistoricoTodo(lead.id)}
+                                    disabled={deletandoHistorico === lead.id}
+                                    className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded-sm transition-colors disabled:opacity-50"
+                                  >
+                                    {deletandoHistorico === lead.id
+                                      ? <Loader2 size={10} className="animate-spin" />
+                                      : <X size={10} />}
+                                    Apagar histórico
+                                  </button>
+                                )}
+                              </div>
+
+                              {histLoading ? (
+                                <div className="flex items-center gap-2 py-2 text-xs text-charcoal-400">
+                                  <Loader2 size={12} className="animate-spin" /> Carregando…
+                                </div>
+                              ) : !hist || hist.length === 0 ? (
+                                <p className="text-xs text-charcoal-300 italic">Nenhuma alteração registrada.</p>
+                              ) : (
+                                <div className="relative">
+                                  {/* Linha vertical da timeline */}
+                                  <div className="absolute left-[13px] top-0 bottom-0 w-px bg-cream-300" />
+                                  <div className="space-y-0">
+                                    {hist.map((h, idx) => {
+                                      const etAnterior = etapas.find(e => e.id === h.etapaAnterior);
+                                      const etNova     = etapas.find(e => e.id === h.etapaNova);
+                                      const isFirst    = idx === 0;
+                                      return (
+                                        <div key={h.id} className="flex gap-3 group">
+                                          {/* Bolinha */}
+                                          <div className={`relative z-10 w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1 border-2 ${isFirst ? 'bg-forest-500 border-forest-500' : 'bg-white border-cream-300'}`}>
+                                            <TrendingUp size={11} className={isFirst ? 'text-white' : 'text-charcoal-400'} />
+                                          </div>
+                                          {/* Conteúdo */}
+                                          <div className="flex-1 pb-4">
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div className="flex flex-wrap items-center gap-1.5">
+                                                {h.etapaAnterior ? (
+                                                  <>
+                                                    <span className={`px-1.5 py-0.5 text-[10px] rounded border font-medium ${etAnterior?.color ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                                      {etAnterior?.label ?? h.etapaAnterior}
+                                                    </span>
+                                                    <ArrowRight size={10} className="text-charcoal-400" />
+                                                  </>
+                                                ) : (
+                                                  <span className="text-[10px] text-charcoal-400 italic">Entrada no funil →</span>
+                                                )}
+                                                <span className={`px-1.5 py-0.5 text-[10px] rounded border font-medium ${etNova?.color ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                                  {etNova?.label ?? h.etapaNova}
+                                                </span>
+                                              </div>
+                                              <button
+                                                onClick={() => handleDeletarHistoricoItem(lead.id, h.id)}
+                                                disabled={deletandoHistorico === h.id}
+                                                className="opacity-0 group-hover:opacity-100 p-0.5 text-red-300 hover:text-red-500 transition-all shrink-0"
+                                                title="Remover entrada"
+                                              >
+                                                {deletandoHistorico === h.id
+                                                  ? <Loader2 size={11} className="animate-spin" />
+                                                  : <X size={11} />}
+                                              </button>
+                                            </div>
+                                            <p className="text-[10px] text-charcoal-400 mt-0.5">
+                                              {new Date(h.alteradoEm).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' })}
+                                              {' às '}
+                                              {new Date(h.alteradoEm).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
+                                              {h.alteradoPor ? ` · por ${h.alteradoPor}` : ''}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
                             {/* Histórico de interações */}
                             {lead.interacoes.length > 0 && (
-                              <div>
+                              <div className="border-t border-cream-200 pt-3">
                                 <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">
-                                  Histórico de interações ({lead.interacoes.length})
+                                  Interações ({lead.interacoes.length})
                                 </p>
                                 <div className="space-y-2 max-h-48 overflow-y-auto">
                                   {lead.interacoes.map(inter => (

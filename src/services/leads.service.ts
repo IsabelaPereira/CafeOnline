@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { Lead, InteracaoCRM } from '../types';
+import type { Lead, InteracaoCRM, HistoricoEtapaLead } from '../types';
 
 function mapLead(r: any): Lead {
   return {
@@ -52,8 +52,55 @@ export async function createLead(l: { nome: string; email: string; telefone?: st
   return mapLead(data);
 }
 
-export async function updateLeadEtapa(id: string, etapa: Lead['etapa']): Promise<void> {
+export async function updateLeadEtapa(id: string, etapa: Lead['etapa'], alteradoPor?: string): Promise<void> {
+  // Busca etapa atual para gravar no histórico
+  const { data: atual } = await supabase.from('leads').select('etapa').eq('id', id).single();
+  const etapaAnterior = (atual as any)?.etapa ?? null;
+
   const { error } = await supabase.from('leads').update({ etapa, ultimo_contato: new Date().toISOString().split('T')[0] }).eq('id', id);
+  if (error) throw error;
+
+  // Grava histórico (ignora erro para não bloquear a operação principal)
+  await supabase.from('historico_etapa_lead').insert({
+    lead_id:        id,
+    etapa_anterior: etapaAnterior,
+    etapa_nova:     etapa,
+    alterado_por:   alteradoPor ?? null,
+    alterado_em:    new Date().toISOString(),
+  });
+}
+
+// ── Histórico de etapa ──────────────────────────────────────────────────────
+
+export async function getHistoricoEtapaLead(leadId: string): Promise<HistoricoEtapaLead[]> {
+  const { data, error } = await supabase
+    .from('historico_etapa_lead')
+    .select('id, lead_id, etapa_anterior, etapa_nova, alterado_por, alterado_em')
+    .eq('lead_id', leadId)
+    .order('alterado_em', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r: any): HistoricoEtapaLead => ({
+    id: r.id, leadId: r.lead_id,
+    etapaAnterior: r.etapa_anterior ?? undefined,
+    etapaNova:     r.etapa_nova,
+    alteradoPor:   r.alterado_por ?? undefined,
+    alteradoEm:    r.alterado_em,
+  }));
+}
+
+export async function deleteHistoricoEtapaLead(leadId: string): Promise<void> {
+  const { error } = await supabase
+    .from('historico_etapa_lead')
+    .delete()
+    .eq('lead_id', leadId);
+  if (error) throw error;
+}
+
+export async function deleteHistoricoEtapaItem(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('historico_etapa_lead')
+    .delete()
+    .eq('id', id);
   if (error) throw error;
 }
 

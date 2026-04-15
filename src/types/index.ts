@@ -89,6 +89,15 @@ export interface InteracaoCRM {
   usuario: string;
 }
 
+export interface HistoricoEtapaLead {
+  id: string;
+  leadId: string;
+  etapaAnterior?: string;
+  etapaNova: string;
+  alteradoPor?: string;
+  alteradoEm: string;
+}
+
 // ---- PLANOS ----
 export interface PlanoAssinatura {
   id: string;
