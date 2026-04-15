@@ -5,7 +5,8 @@
       "Bash(npx tailwindcss:*)",
       "Bash(npx tsc *)",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }

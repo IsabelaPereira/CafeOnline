@@ -99,7 +99,7 @@ export function LoginPage() {
           >
             <span className="h-px w-10 bg-gold-400" />
             <span className="font-mono text-[10px] tracking-[0.35em] uppercase text-gold-300">
-              Estação · Outono 26
+              Edições ·  Exclusivas
             </span>
           </div>
 
@@ -107,10 +107,10 @@ export function LoginPage() {
             className="font-editorial text-[68px] xl:text-[88px] leading-[0.95] tracking-tight text-cream-100"
             style={{ animation: 'slideUp 1s 0.2s both' }}
           >
-            A lentidão
+            Café
             <span className="block mt-1">
-              <span className="font-display italic text-gold-300">tem</span>{' '}
-              sabor.
+              <span className="font-display italic text-gold-300">de</span>{' '}
+              verdade.
             </span>
           </h2>
 
@@ -118,15 +118,14 @@ export function LoginPage() {
             className="mt-10 font-display italic text-xl xl:text-2xl text-cream-100/75 max-w-md leading-snug"
             style={{ animation: 'fadeIn 1.2s 0.5s both' }}
           >
-            Micro-lotes colhidos a mão em fazendas regenerativas da Serra da
-            Mantiqueira — torrados na semana, entregues em casa.
+            Tenha a exclusividade e qualidade que o seu dia merece. Cafés únicos, escolhidos em curadoria direto para a sua casa.
           </p>
         </div>
 
         {/* BOTTOM — coordinates & seal */}
         <footer className="relative z-10 flex items-end justify-between font-mono text-[11px] tracking-[0.25em] uppercase text-cream-100/55">
           <div>
-            <div>Est. MMXX</div>
+            <div>CAFÉ DE VERDADE</div>
             <div className="mt-1 text-cream-100/35">Clube de café especial</div>
           </div>
           {/* circular wax-seal */}
@@ -135,13 +134,15 @@ export function LoginPage() {
               <circle cx="50" cy="50" r="48" fill="none" stroke="currentColor" strokeWidth="0.6" strokeDasharray="2 3" />
               <circle cx="50" cy="50" r="36" fill="none" stroke="currentColor" strokeWidth="0.4" />
             </svg>
-            <span className="absolute font-editorial italic text-gold-300/90 text-[22px] leading-none">
-              dm
-            </span>
+            <img
+              src="/logo-das-matas.png"
+              alt="Das Matas"
+              className="absolute w-12 h-12 object-contain brightness-0 invert"
+            />
           </div>
           <div className="text-right">
-            <div>22°25′S · 45°27′W</div>
-            <div className="mt-1 text-cream-100/35">Mantiqueira · MG</div>
+            <div>EXCLUSIVE</div>
+            <div className="mt-1 text-cream-100/35">CLUB</div>
           </div>
         </footer>
       </aside>
@@ -355,10 +356,10 @@ export function LoginPage() {
 
           {/* footer signature */}
           <div className="mt-12 flex items-center justify-between font-mono text-[10px] tracking-[0.25em] uppercase text-charcoal-300">
-            <span>© Das Matas · MMXX</span>
+            <span>© Das Matas · 2026</span>
             <span className="flex items-center gap-1.5">
               <span className="w-1 h-1 rounded-full bg-gold-400" />
-              Mantiqueira · MG
+              MINAS GERAIS · BRASIL
             </span>
           </div>
         </div>
