@@ -20,6 +20,15 @@ export async function getReservas(data?: string): Promise<Reserva[]> {
   return (rows ?? []).map(mapReserva);
 }
 
+export async function getReservasCliente(clienteId: string): Promise<Reserva[]> {
+  const { data, error } = await supabase
+    .from('reservas').select('*')
+    .eq('cliente_id', clienteId)
+    .order('data', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapReserva);
+}
+
 export async function createReserva(r: Omit<Reserva, 'id' | 'createdAt'>): Promise<Reserva> {
   const { data, error } = await supabase.from('reservas').insert({
     nome: r.nome, email: r.email, telefone: r.telefone, data: r.data,

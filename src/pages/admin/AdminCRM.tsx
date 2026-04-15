@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Plus, MessageCircle, Mail, Phone, Tag, Users, ArrowRight,
   Eye, Pencil, SlidersHorizontal, Columns2, X, ChevronDown,
-  CreditCard, MapPin, Star,
+  CreditCard, MapPin, Star, ShoppingBag, Repeat, Calendar, TrendingUp,
+  Loader2,
 } from 'lucide-react';
 import {
   Card, Badge, Button, Modal, Input, Select, Textarea, SectionHeader,
@@ -10,7 +11,10 @@ import {
 } from '../../components/ui';
 import { getLeads } from '../../services/leads.service';
 import { getClientes, updateCliente } from '../../services/clientes.service';
-import type { Lead, LeadEtapa, Cliente } from '../../types';
+import { getPedidos } from '../../services/pedidos.service';
+import { getAssinaturasCliente } from '../../services/assinaturas.service';
+import { getReservasCliente } from '../../services/reservas.service';
+import type { Lead, LeadEtapa, Cliente, Pedido, Assinatura, Reserva } from '../../types';
 
 // ── Etapas do funil ───────────────────────────────────────────────────────────
 
@@ -142,6 +146,27 @@ export function AdminCRM() {
   });
   const [salvandoCli, setSalvandoCli] = useState(false);
   const perPageCli = 15;
+
+  // ── Histórico do cliente ───────────────────────────────────────────────────
+  const [cliDetalheTab, setCliDetalheTab] = useState<'dados' | 'pedidos' | 'assinaturas' | 'reservas' | 'funil'>('dados');
+  const [cliHist, setCliHist] = useState<{
+    pedidos: Pedido[]; assinaturas: Assinatura[]; reservas: Reserva[]; loading: boolean;
+  }>({ pedidos: [], assinaturas: [], reservas: [], loading: false });
+
+  useEffect(() => {
+    if (!selectedCliente) return;
+    setCliDetalheTab('dados');
+    setCliHist({ pedidos: [], assinaturas: [], reservas: [], loading: true });
+    Promise.all([
+      getPedidos(selectedCliente.id),
+      getAssinaturasCliente(selectedCliente.id),
+      getReservasCliente(selectedCliente.id),
+    ]).then(([pedidos, assinaturas, reservas]) => {
+      setCliHist({ pedidos, assinaturas, reservas, loading: false });
+    }).catch(() => {
+      setCliHist(prev => ({ ...prev, loading: false }));
+    });
+  }, [selectedCliente?.id]);
 
   useEffect(() => {
     getLeads().then(setLeads).catch(console.error);
@@ -546,78 +571,299 @@ export function AdminCRM() {
       </Modal>
 
       {/* ── Modal detalhe cliente ──────────────────────────────────────────── */}
-      <Modal open={!!selectedCliente && !editandoCli} onClose={() => setSelectedCliente(null)} title={selectedCliente?.name ?? 'Cadastro do Cliente'} size="lg">
-        {selectedCliente && (
-          <div className="space-y-5">
-            {/* Dados pessoais */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {[
-                { label: 'Nome',        value: selectedCliente.name },
-                { label: 'E-mail',      value: selectedCliente.email },
-                { label: 'Telefone',    value: selectedCliente.phone || '—' },
-                { label: 'CPF',         value: selectedCliente.cpf || '—' },
-                { label: 'Aniversário', value: selectedCliente.birthdate ? new Date(selectedCliente.birthdate).toLocaleDateString('pt-BR') : '—' },
-                { label: 'Cliente desde', value: new Date(selectedCliente.createdAt).toLocaleDateString('pt-BR') },
-                { label: 'Preferência', value: selectedCliente.preferenciaCafe === 'grao' ? 'Grão inteiro' : `Moído — ${selectedCliente.tipoMoagem ?? '—'}` },
-              ].map(info => (
-                <div key={info.label} className="bg-cream-50 rounded-sm p-3">
-                  <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>
-                  <p className="text-sm font-medium text-charcoal-700">{info.value}</p>
-                </div>
-              ))}
-            </div>
+      <Modal open={!!selectedCliente && !editandoCli} onClose={() => setSelectedCliente(null)} title={selectedCliente?.name ?? 'Cadastro do Cliente'} size="xl">
+        {selectedCliente && (() => {
+          const pedidoStatusColor: Record<string, string> = {
+            pendente: 'bg-gray-100 text-gray-600', pago: 'bg-blue-100 text-blue-700',
+            em_preparo: 'bg-orange-100 text-orange-700', enviado: 'bg-purple-100 text-purple-700',
+            entregue: 'bg-forest-100 text-forest-700', cancelado: 'bg-red-100 text-red-700',
+            reembolsado: 'bg-yellow-100 text-yellow-700',
+          };
+          const assStatusColor: Record<string, string> = {
+            ativa: 'bg-forest-100 text-forest-700', pendente: 'bg-yellow-100 text-yellow-700',
+            inadimplente: 'bg-red-100 text-red-700', cancelada: 'bg-gray-100 text-gray-600',
+            pausada: 'bg-orange-100 text-orange-700',
+          };
+          const resStatusColor: Record<string, string> = {
+            solicitada: 'bg-blue-100 text-blue-700', confirmada: 'bg-forest-100 text-forest-700',
+            cancelada: 'bg-red-100 text-red-700', concluida: 'bg-gray-100 text-gray-600',
+            no_show: 'bg-orange-100 text-orange-700',
+          };
+          const resStatusLabel: Record<string, string> = {
+            solicitada: 'Solicitada', confirmada: 'Confirmada', cancelada: 'Cancelada',
+            concluida: 'Concluída', no_show: 'No-show',
+          };
+          const clienteLeads = leads.filter(l =>
+            l.clienteId === selectedCliente.id || l.email === selectedCliente.email,
+          );
 
-            {/* Cartão Stripe */}
-            {selectedCliente.stripeCardLast4 && (
-              <div>
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Cartão cadastrado</p>
-                <div className="flex items-center gap-3 p-3 bg-cream-50 rounded-sm">
-                  <CreditCard size={18} className="text-charcoal-400" />
-                  <div>
-                    <p className="text-sm text-charcoal-700 font-medium capitalize">
-                      {selectedCliente.stripeCardBrand} •••• {selectedCliente.stripeCardLast4}
-                    </p>
-                    <p className="text-xs text-charcoal-400">Validade: {selectedCliente.stripeCardExpiry}</p>
-                  </div>
-                </div>
+          const tabs = [
+            { id: 'dados',       label: 'Dados',         icon: <Users size={13} /> },
+            { id: 'pedidos',     label: 'Pedidos',        icon: <ShoppingBag size={13} />, count: cliHist.pedidos.length },
+            { id: 'assinaturas', label: 'Assinaturas',    icon: <Repeat size={13} />, count: cliHist.assinaturas.length },
+            { id: 'reservas',    label: 'Reservas',       icon: <Calendar size={13} />, count: cliHist.reservas.length },
+            { id: 'funil',       label: 'Funil de vendas', icon: <TrendingUp size={13} />, count: clienteLeads.length },
+          ] as const;
+
+          return (
+            <div className="space-y-4">
+              {/* Tabs internas */}
+              <div className="flex flex-wrap gap-1 border-b border-cream-200 pb-1">
+                {tabs.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setCliDetalheTab(t.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-sm font-medium transition-colors ${cliDetalheTab === t.id ? 'bg-forest-500 text-white' : 'text-charcoal-500 hover:bg-cream-100'}`}
+                  >
+                    {t.icon} {t.label}
+                    {'count' in t && !cliHist.loading && (t.count ?? 0) > 0 && (
+                      <span className={`text-[10px] rounded-full px-1.5 py-0 font-bold ${cliDetalheTab === t.id ? 'bg-white/30 text-white' : 'bg-cream-200 text-charcoal-500'}`}>
+                        {t.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+                {cliHist.loading && <Loader2 size={14} className="animate-spin text-charcoal-400 ml-2 self-center" />}
               </div>
-            )}
 
-            {/* Endereços */}
-            {selectedCliente.enderecos.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">
-                  Endereços ({selectedCliente.enderecos.length})
-                </p>
-                <div className="space-y-2">
-                  {selectedCliente.enderecos.map(end => (
-                    <div key={end.id} className="flex items-start gap-3 p-3 bg-cream-50 rounded-sm">
-                      <MapPin size={15} className="text-charcoal-400 mt-0.5 shrink-0" />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          {end.apelido && <span className="text-xs font-medium text-forest-600 bg-forest-50 px-1.5 py-0.5 rounded">{end.apelido}</span>}
-                          {end.padrao  && <span className="flex items-center gap-0.5 text-xs text-amber-600"><Star size={10} />Padrão</span>}
+              {/* ── Aba: Dados ──────────────────────────────────────────────── */}
+              {cliDetalheTab === 'dados' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {[
+                      { label: 'Nome',          value: selectedCliente.name },
+                      { label: 'E-mail',        value: selectedCliente.email },
+                      { label: 'Telefone',      value: selectedCliente.phone || '—' },
+                      { label: 'CPF',           value: selectedCliente.cpf || '—' },
+                      { label: 'Aniversário',   value: selectedCliente.birthdate ? new Date(selectedCliente.birthdate).toLocaleDateString('pt-BR') : '—' },
+                      { label: 'Cliente desde', value: new Date(selectedCliente.createdAt).toLocaleDateString('pt-BR') },
+                      { label: 'Preferência',   value: selectedCliente.preferenciaCafe === 'grao' ? 'Grão inteiro' : `Moído — ${selectedCliente.tipoMoagem ?? '—'}` },
+                    ].map(info => (
+                      <div key={info.label} className="bg-cream-50 rounded-sm p-3">
+                        <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>
+                        <p className="text-sm font-medium text-charcoal-700">{info.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedCliente.stripeCardLast4 && (
+                    <div>
+                      <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Cartão cadastrado</p>
+                      <div className="flex items-center gap-3 p-3 bg-cream-50 rounded-sm">
+                        <CreditCard size={18} className="text-charcoal-400" />
+                        <div>
+                          <p className="text-sm text-charcoal-700 font-medium capitalize">
+                            {selectedCliente.stripeCardBrand} •••• {selectedCliente.stripeCardLast4}
+                          </p>
+                          <p className="text-xs text-charcoal-400">Validade: {selectedCliente.stripeCardExpiry}</p>
                         </div>
-                        <p className="text-sm text-charcoal-700">
-                          {end.logradouro}, {end.numero}{end.complemento ? `, ${end.complemento}` : ''}
-                        </p>
-                        <p className="text-xs text-charcoal-400">
-                          {end.bairro} — {end.cidade}/{end.estado} · CEP {end.cep}
-                        </p>
                       </div>
                     </div>
-                  ))}
+                  )}
+                  {selectedCliente.enderecos.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">
+                        Endereços ({selectedCliente.enderecos.length})
+                      </p>
+                      <div className="space-y-2">
+                        {selectedCliente.enderecos.map(end => (
+                          <div key={end.id} className="flex items-start gap-3 p-3 bg-cream-50 rounded-sm">
+                            <MapPin size={15} className="text-charcoal-400 mt-0.5 shrink-0" />
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                {end.apelido && <span className="text-xs font-medium text-forest-600 bg-forest-50 px-1.5 py-0.5 rounded">{end.apelido}</span>}
+                                {end.padrao  && <span className="flex items-center gap-0.5 text-xs text-amber-600"><Star size={10} />Padrão</span>}
+                              </div>
+                              <p className="text-sm text-charcoal-700">
+                                {end.logradouro}, {end.numero}{end.complemento ? `, ${end.complemento}` : ''}
+                              </p>
+                              <p className="text-xs text-charcoal-400">
+                                {end.bairro} — {end.cidade}/{end.estado} · CEP {end.cep}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
 
-            <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
-              <Button variant="secondary" icon={<Pencil size={14} />} onClick={() => abrirEditarCliente(selectedCliente)}>
-                Editar cadastro
-              </Button>
+              {/* ── Aba: Pedidos ────────────────────────────────────────────── */}
+              {cliDetalheTab === 'pedidos' && (
+                <div>
+                  {cliHist.loading ? (
+                    <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-charcoal-300" /></div>
+                  ) : cliHist.pedidos.length === 0 ? (
+                    <p className="text-sm text-charcoal-400 text-center py-10">Nenhum pedido encontrado.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {cliHist.pedidos.map(p => (
+                        <div key={p.id} className="flex items-center justify-between p-3 bg-cream-50 rounded-sm border border-cream-100">
+                          <div>
+                            <p className="text-sm font-medium text-charcoal-700">{p.numero}</p>
+                            <p className="text-xs text-charcoal-400">
+                              {new Date(p.createdAt).toLocaleDateString('pt-BR')} · {p.itens.length} item{p.itens.length !== 1 ? 's' : ''} · {p.tipo === 'assinatura' ? 'Assinatura' : 'Loja'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${pedidoStatusColor[p.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                              {p.status.replace('_', ' ')}
+                            </span>
+                            <span className="text-sm font-semibold text-charcoal-700">
+                              R$ {p.total.toFixed(2).replace('.', ',')}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Aba: Assinaturas ────────────────────────────────────────── */}
+              {cliDetalheTab === 'assinaturas' && (
+                <div>
+                  {cliHist.loading ? (
+                    <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-charcoal-300" /></div>
+                  ) : cliHist.assinaturas.length === 0 ? (
+                    <p className="text-sm text-charcoal-400 text-center py-10">Nenhuma assinatura encontrada.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {cliHist.assinaturas.map(a => (
+                        <div key={a.id} className="p-3 bg-cream-50 rounded-sm border border-cream-100 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-charcoal-700">{a.plano.nome}</p>
+                              <p className="text-xs text-charcoal-400">
+                                Desde {new Date(a.dataInicio).toLocaleDateString('pt-BR')}
+                                {a.dataFim ? ` · Encerrou ${new Date(a.dataFim).toLocaleDateString('pt-BR')}` : ''}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${assStatusColor[a.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                                {a.status.charAt(0).toUpperCase() + a.status.slice(1)}
+                              </span>
+                              <p className="text-xs text-charcoal-500 mt-1">R$ {a.totalMensal.toFixed(2).replace('.', ',')} / mês</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-3 text-xs text-charcoal-500">
+                            <span>Preferência: {a.preferenciaCafe === 'grao' ? 'Grão' : `Moído (${a.tipoMoagem ?? '—'})`}</span>
+                            <span>{a.ciclos.length} ciclo{a.ciclos.length !== 1 ? 's' : ''}</span>
+                            {a.proximaCobranca && (
+                              <span>Próx. cobrança: {new Date(a.proximaCobranca).toLocaleDateString('pt-BR')}</span>
+                            )}
+                          </div>
+                          {a.motivoCancelamento && (
+                            <p className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">Motivo: {a.motivoCancelamento}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Aba: Reservas ───────────────────────────────────────────── */}
+              {cliDetalheTab === 'reservas' && (
+                <div>
+                  {cliHist.loading ? (
+                    <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-charcoal-300" /></div>
+                  ) : cliHist.reservas.length === 0 ? (
+                    <p className="text-sm text-charcoal-400 text-center py-10">Nenhuma reserva encontrada.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {cliHist.reservas.map(r => (
+                        <div key={r.id} className="flex items-center justify-between p-3 bg-cream-50 rounded-sm border border-cream-100">
+                          <div>
+                            <p className="text-sm font-medium text-charcoal-700">
+                              {new Date(r.data).toLocaleDateString('pt-BR')} às {r.horario}
+                            </p>
+                            <p className="text-xs text-charcoal-400">
+                              {r.pessoas} pessoa{r.pessoas !== 1 ? 's' : ''}
+                              {r.observacoes ? ` · ${r.observacoes}` : ''}
+                            </p>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${resStatusColor[r.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {resStatusLabel[r.status] ?? r.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Aba: Funil ──────────────────────────────────────────────── */}
+              {cliDetalheTab === 'funil' && (
+                <div>
+                  {clienteLeads.length === 0 ? (
+                    <p className="text-sm text-charcoal-400 text-center py-10">Nenhum lead vinculado a este cliente.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {clienteLeads.map(lead => {
+                        const etapa = etapas.find(e => e.id === lead.etapa);
+                        return (
+                          <div key={lead.id} className="p-4 bg-cream-50 rounded-sm border border-cream-100 space-y-3">
+                            {/* Cabeçalho */}
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-charcoal-700">{lead.nome}</p>
+                                <p className="text-xs text-charcoal-400">{lead.email}</p>
+                              </div>
+                              <span className={`px-2 py-0.5 text-xs rounded border font-medium ${etapa?.color}`}>{etapa?.label}</span>
+                            </div>
+                            {/* Detalhes */}
+                            <div className="grid grid-cols-2 gap-2 text-xs text-charcoal-500">
+                              <span>Origem: <strong className="text-charcoal-700 capitalize">{lead.origem}</strong></span>
+                              {lead.planoDesejado && <span>Plano: <strong className="text-charcoal-700">{lead.planoDesejado}</strong></span>}
+                              {lead.responsavel && <span>Responsável: <strong className="text-charcoal-700">{lead.responsavel}</strong></span>}
+                              <span>Lead desde: <strong className="text-charcoal-700">{new Date(lead.createdAt).toLocaleDateString('pt-BR')}</strong></span>
+                            </div>
+                            {/* Tags */}
+                            {lead.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {lead.tags.map(tag => (
+                                  <span key={tag} className="px-1.5 py-0.5 bg-cream-200 text-charcoal-500 text-xs rounded">{tag}</span>
+                                ))}
+                              </div>
+                            )}
+                            {/* Histórico de interações */}
+                            {lead.interacoes.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">
+                                  Histórico de interações ({lead.interacoes.length})
+                                </p>
+                                <div className="space-y-2 max-h-48 overflow-y-auto">
+                                  {lead.interacoes.map(inter => (
+                                    <div key={inter.id} className="flex gap-2 p-2 bg-white rounded border border-cream-100">
+                                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${inter.tipo === 'email' ? 'bg-blue-100 text-blue-500' : inter.tipo === 'whatsapp' ? 'bg-green-100 text-green-500' : 'bg-charcoal-100 text-charcoal-500'}`}>
+                                        {inter.tipo === 'email' ? <Mail size={11} /> : inter.tipo === 'whatsapp' ? <MessageCircle size={11} /> : <Phone size={11} />}
+                                      </div>
+                                      <div>
+                                        <p className="text-xs text-charcoal-700">{inter.descricao}</p>
+                                        <p className="text-[10px] text-charcoal-400 mt-0.5">{new Date(inter.data).toLocaleDateString('pt-BR')} · {inter.usuario}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+                <Button variant="secondary" icon={<Pencil size={14} />} onClick={() => abrirEditarCliente(selectedCliente)}>
+                  Editar cadastro
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </Modal>
 
       {/* ── Modal editar cliente ───────────────────────────────────────────── */}
