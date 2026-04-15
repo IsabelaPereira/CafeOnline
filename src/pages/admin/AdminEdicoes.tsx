@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Plus, Globe, GlobeLock, ChevronDown, ChevronUp,
-  Coffee, MapPin, Flame, Star, Trash2, Edit2, MessageSquare,
+  Coffee, MapPin, Flame, Star, Trash2, Edit2, MessageSquare, Users,
 } from 'lucide-react';
 import { Card, Badge, Button, Modal, Alert, Input } from '../../components/ui';
 import {
@@ -71,13 +71,26 @@ interface EditionRatings {
   cafes: Array<AvaliacaoCafe & { clienteNome: string }>;
 }
 
+interface AssinanteEdicao {
+  cicloId: string;
+  assinaturaId: string;
+  clienteId: string;
+  clienteNome: string;
+  clienteEmail: string;
+  planoNome: string;
+  status: 'pendente' | 'enviado' | 'entregue';
+  dataEnvio?: string;
+  dataEntrega?: string;
+  codigoRastreio?: string;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function AdminEdicoes() {
   const [edicoes, setEdicoes]   = useState<EdicaoClube[]>([]);
   const [planos, setPlanos]     = useState<PlanoAssinatura[]>([]);
   const [expandido, setExpandido] = useState<string | null>(null);
-  const [tabAtiva, setTabAtiva]   = useState<Record<string, 'cafes' | 'avaliacoes'>>({});
+  const [tabAtiva, setTabAtiva]   = useState<Record<string, 'cafes' | 'avaliacoes' | 'assinantes'>>({});
 
   // Modals
   type ModalType = 'new' | 'edit' | 'view' | 'cafe' | null;
@@ -99,6 +112,10 @@ export function AdminEdicoes() {
   const [ratings, setRatings]             = useState<Record<string, EditionRatings>>({});
   const [loadingRatings, setLoadingRatings] = useState<Record<string, boolean>>({});
 
+  // Assinantes
+  const [assinantes, setAssinantes]               = useState<Record<string, AssinanteEdicao[]>>({});
+  const [loadingAssinantes, setLoadingAssinantes] = useState<Record<string, boolean>>({});
+
   // Feedback
   const [sucesso, setSucesso] = useState('');
 
@@ -117,7 +134,7 @@ export function AdminEdicoes() {
     });
   }
 
-  async function mudarTab(edicaoId: string, tab: 'cafes' | 'avaliacoes') {
+  async function mudarTab(edicaoId: string, tab: 'cafes' | 'avaliacoes' | 'assinantes') {
     setTabAtiva(p => ({ ...p, [edicaoId]: tab }));
     if (tab === 'avaliacoes' && !ratings[edicaoId] && !loadingRatings[edicaoId]) {
       setLoadingRatings(p => ({ ...p, [edicaoId]: true }));
@@ -138,6 +155,54 @@ export function AdminEdicoes() {
       } finally {
         setLoadingRatings(p => ({ ...p, [edicaoId]: false }));
       }
+    }
+    if (tab === 'assinantes' && !assinantes[edicaoId] && !loadingAssinantes[edicaoId]) {
+      fetchAssinantesEdicao(edicaoId);
+    }
+  }
+
+  async function fetchAssinantesEdicao(edicaoId: string) {
+    setLoadingAssinantes(p => ({ ...p, [edicaoId]: true }));
+    try {
+      const { data: ciclos } = await supabase
+        .from('ciclos_assinatura')
+        .select('id, status, data_envio, data_entrega, codigo_rastreio, assinatura:assinaturas(id, cliente_id, plano:planos(nome))')
+        .eq('edicao_id', edicaoId)
+        .order('created_at', { ascending: true });
+
+      const rows = ciclos ?? [];
+      const clienteIds = [...new Set(rows.map((c: any) => c.assinatura?.cliente_id).filter(Boolean))];
+
+      const nomes = await fetchClienteNomes(clienteIds);
+
+      // Fetch emails separately
+      const { data: clientes } = await supabase.from('clientes').select('id, user_id').in('id', clienteIds);
+      const userIds = (clientes ?? []).map((c: any) => c.user_id).filter(Boolean);
+      const { data: profiles } = await supabase.from('profiles').select('id, email').in('id', userIds);
+      const profileByUserId = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+      const userIdByClienteId = new Map((clientes ?? []).map((c: any) => [c.id, c.user_id]));
+
+      const result: AssinanteEdicao[] = rows.map((c: any) => {
+        const clienteId = c.assinatura?.cliente_id ?? '';
+        const userId = userIdByClienteId.get(clienteId);
+        const profile = profileByUserId.get(userId);
+        return {
+          cicloId:      c.id,
+          assinaturaId: c.assinatura?.id ?? '',
+          clienteId,
+          clienteNome:  nomes[clienteId] ?? '—',
+          clienteEmail: profile?.email ?? '—',
+          planoNome:    c.assinatura?.plano?.nome ?? '—',
+          status:       c.status as AssinanteEdicao['status'],
+          dataEnvio:    c.data_envio ?? undefined,
+          dataEntrega:  c.data_entrega ?? undefined,
+          codigoRastreio: c.codigo_rastreio ?? undefined,
+        };
+      });
+
+      setAssinantes(p => ({ ...p, [edicaoId]: result }));
+    } finally {
+      setLoadingAssinantes(p => ({ ...p, [edicaoId]: false }));
     }
   }
 
@@ -420,7 +485,7 @@ export function AdminEdicoes() {
                 <div className="border-t border-cream-100">
                   {/* Tabs */}
                   <div className="flex border-b border-cream-100">
-                    {(['cafes', 'avaliacoes'] as const).map(t => (
+                    {(['cafes', 'avaliacoes', 'assinantes'] as const).map(t => (
                       <button
                         key={t}
                         onClick={() => mudarTab(ed.id, t)}
@@ -430,7 +495,7 @@ export function AdminEdicoes() {
                             : 'text-charcoal-400 hover:text-charcoal-600'
                         }`}
                       >
-                        {t === 'cafes' ? `Cafés (${ed.cafes.length})` : 'Avaliações'}
+                        {t === 'cafes' ? `Cafés (${ed.cafes.length})` : t === 'avaliacoes' ? 'Avaliações' : 'Assinantes'}
                       </button>
                     ))}
                   </div>
@@ -464,6 +529,67 @@ export function AdminEdicoes() {
                         <Plus size={13} />
                         Adicionar café
                       </button>
+                    </div>
+                  )}
+
+                  {/* Tab: Assinantes */}
+                  {tab === 'assinantes' && (
+                    <div className="px-5 py-5">
+                      {loadingAssinantes[ed.id] ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="w-5 h-5 border-2 border-forest-400 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : !assinantes[ed.id] || assinantes[ed.id].length === 0 ? (
+                        <div className="text-center py-8">
+                          <Users size={24} className="text-charcoal-200 mx-auto mb-2" />
+                          <p className="text-sm text-charcoal-400">Nenhum assinante recebeu esta edição ainda.</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">
+                            {assinantes[ed.id].length} assinante{assinantes[ed.id].length !== 1 ? 's' : ''} nesta edição
+                          </p>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b border-cream-100">
+                                  <th className="text-left text-xs font-medium text-charcoal-400 uppercase tracking-wider pb-2 pr-4">Cliente</th>
+                                  <th className="text-left text-xs font-medium text-charcoal-400 uppercase tracking-wider pb-2 pr-4">Plano</th>
+                                  <th className="text-left text-xs font-medium text-charcoal-400 uppercase tracking-wider pb-2 pr-4">Status</th>
+                                  <th className="text-left text-xs font-medium text-charcoal-400 uppercase tracking-wider pb-2 pr-4">Envio</th>
+                                  <th className="text-left text-xs font-medium text-charcoal-400 uppercase tracking-wider pb-2">Rastreio</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-cream-50">
+                                {assinantes[ed.id].map(a => (
+                                  <tr key={a.cicloId} className="hover:bg-cream-50 transition-colors">
+                                    <td className="py-2.5 pr-4">
+                                      <p className="text-charcoal-700 font-medium">{a.clienteNome}</p>
+                                      <p className="text-xs text-charcoal-400">{a.clienteEmail}</p>
+                                    </td>
+                                    <td className="py-2.5 pr-4 text-charcoal-600 text-xs">{a.planoNome}</td>
+                                    <td className="py-2.5 pr-4">
+                                      <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-sm ${
+                                        a.status === 'entregue' ? 'bg-forest-50 text-forest-600' :
+                                        a.status === 'enviado'  ? 'bg-blue-50 text-blue-600' :
+                                        'bg-cream-100 text-charcoal-500'
+                                      }`}>
+                                        {a.status === 'entregue' ? 'Entregue' : a.status === 'enviado' ? 'Enviado' : 'Pendente'}
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 pr-4 text-xs text-charcoal-500">
+                                      {a.dataEnvio ? new Date(a.dataEnvio).toLocaleDateString('pt-BR') : '—'}
+                                    </td>
+                                    <td className="py-2.5 text-xs text-charcoal-500 font-mono">
+                                      {a.codigoRastreio ?? '—'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

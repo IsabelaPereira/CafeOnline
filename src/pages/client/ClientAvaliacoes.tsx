@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Star, Coffee } from 'lucide-react';
+import { Star, Coffee, PlayCircle, BookOpen } from 'lucide-react';
 import { Card, Button, Textarea, StarRating } from '../../components/ui';
 import { getEdicoes } from '../../services/edicoes.service';
 import {
@@ -25,6 +25,24 @@ const defaultForm: AvaliacaoForm = {
   notaGeral: 0, aroma: 0, docura: 0, acidez: 0, corpo: 0, finalizacao: 0, comentario: '',
 };
 
+function youtubeEmbedUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    let videoId = '';
+    if (u.hostname === 'youtu.be') {
+      videoId = u.pathname.slice(1);
+    } else if (u.searchParams.get('v')) {
+      videoId = u.searchParams.get('v')!;
+    } else if (u.pathname.startsWith('/embed/')) {
+      videoId = u.pathname.split('/embed/')[1];
+    }
+    if (!videoId) return null;
+    return `https://www.youtube.com/embed/${videoId}`;
+  } catch {
+    return null;
+  }
+}
+
 export function ClientAvaliacoes() {
   const { cliente } = useCliente();
 
@@ -39,8 +57,6 @@ export function ClientAvaliacoes() {
   const [boxForm, setBoxForm]                 = useState<AvaliacaoForm>(defaultForm);
   const [cafeForms, setCafeForms]             = useState<Record<string, AvaliacaoForm>>({});
 
-  // Expanded cafe (shows detailed sensorial fields)
-  const [expandedCafe, setExpandedCafe]       = useState<string | null>(null);
 
   // Loading / error per target key ('box' or cafeId)
   const [submitting, setSubmitting]           = useState<Record<string, boolean>>({});
@@ -62,7 +78,6 @@ export function ClientAvaliacoes() {
     setExistingCafes({});
     setBoxForm(defaultForm);
     setCafeForms({});
-    setExpandedCafe(null);
     setErrors({});
 
     getAvaliacoesBox(cliente.id, selectedEdicao.id).then(reviews => {
@@ -156,7 +171,6 @@ export function ClientAvaliacoes() {
           createdAt:   p[cafeId]?.createdAt ?? new Date().toISOString(),
         },
       }));
-      setExpandedCafe(null);
     } catch {
       setErrors(p => ({ ...p, [cafeId]: 'Não foi possível salvar. Tente novamente.' }));
     } finally {
@@ -205,6 +219,60 @@ export function ClientAvaliacoes() {
           ))}
         </div>
       </Card>
+
+      {/* Edition content: description, video, exclusive text */}
+      {selectedEdicao && (selectedEdicao.descricao || selectedEdicao.videoYoutube || selectedEdicao.textoExclusivo) && (
+        <Card className="space-y-5">
+          {/* Descricao */}
+          {selectedEdicao.descricao && (
+            <p className="text-charcoal-600 text-sm leading-relaxed">{selectedEdicao.descricao}</p>
+          )}
+
+          {/* Video YouTube */}
+          {selectedEdicao.videoYoutube && (() => {
+            const embedUrl = youtubeEmbedUrl(selectedEdicao.videoYoutube);
+            if (!embedUrl) return (
+              <a
+                href={selectedEdicao.videoYoutube}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-sm text-forest-600 hover:text-forest-700 font-medium"
+              >
+                <PlayCircle size={18} />
+                Assistir vídeo da edição
+              </a>
+            );
+            return (
+              <div>
+                <p className="flex items-center gap-1.5 text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">
+                  <PlayCircle size={13} /> Vídeo da edição
+                </p>
+                <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                  <iframe
+                    src={embedUrl}
+                    title="Vídeo da edição"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    className="absolute inset-0 w-full h-full rounded-sm"
+                  />
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Texto exclusivo */}
+          {selectedEdicao.textoExclusivo && (
+            <div className="border-t border-cream-100 pt-4">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">
+                <BookOpen size={13} /> Conteúdo exclusivo para membros
+              </p>
+              <p className="text-charcoal-600 text-sm leading-relaxed whitespace-pre-line">
+                {selectedEdicao.textoExclusivo}
+              </p>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Box evaluation */}
       {selectedEdicao && (
@@ -255,20 +323,24 @@ export function ClientAvaliacoes() {
 
       {/* Cafés evaluation */}
       {selectedEdicao?.cafes.map(cafe => {
-        const existing  = existingCafes[cafe.id];
-        const form      = cafeForms[cafe.id] ?? defaultForm;
-        const isExpanded = expandedCafe === cafe.id;
+        const existing = existingCafes[cafe.id];
+        const form     = cafeForms[cafe.id] ?? defaultForm;
 
         return (
           <Card key={cafe.id}>
+            {/* Cabeçalho */}
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 bg-earth-100 rounded-sm flex items-center justify-center shrink-0">
                   <Coffee size={18} className="text-earth-500" />
                 </div>
                 <div>
-                  <h3 className="font-serif text-lg text-charcoal-700">{cafe.nome}</h3>
-                  <p className="text-sm text-charcoal-400">{cafe.regiao} · {cafe.processo}</p>
+                  <h3 className="font-serif text-xl text-charcoal-700">{cafe.nome}</h3>
+                  {(cafe.regiao || cafe.estado) && (
+                    <p className="text-sm text-charcoal-400 mt-0.5">
+                      {[cafe.regiao, cafe.estado].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                 </div>
               </div>
               {existing && (
@@ -278,16 +350,70 @@ export function ClientAvaliacoes() {
               )}
             </div>
 
-            <div className="space-y-4">
-              {/* Nota geral — always visible; clicking expands the full form */}
+            {/* Descrição */}
+            {cafe.descricao && (
+              <p className="text-sm text-charcoal-600 leading-relaxed mb-4">{cafe.descricao}</p>
+            )}
+
+            {/* Ficha técnica */}
+            {(cafe.produtor || cafe.variedade || cafe.processo || cafe.altitude || cafe.torra) && (
+              <div className="bg-cream-50 rounded-sm p-4 mb-4">
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Ficha técnica</p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                  {[
+                    { label: 'Produtor',   value: cafe.produtor  },
+                    { label: 'Variedade',  value: cafe.variedade },
+                    { label: 'Processo',   value: cafe.processo  },
+                    { label: 'Altitude',   value: cafe.altitude  },
+                    { label: 'Torra',      value: cafe.torra     },
+                  ].filter(f => f.value).map(f => (
+                    <div key={f.label}>
+                      <span className="text-xs text-charcoal-400">{f.label}</span>
+                      <p className="text-sm text-charcoal-700 font-medium">{f.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Notas sensoriais */}
+            {cafe.notasSensoriais?.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Notas sensoriais</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {cafe.notasSensoriais.map(n => (
+                    <span key={n} className="text-xs bg-earth-50 text-earth-700 px-2.5 py-1 rounded-sm">{n}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sugestões de preparo */}
+            {cafe.sugestoesPreparo?.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Sugestões de preparo</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {cafe.sugestoesPreparo.map(s => (
+                    <span key={s} className="text-xs bg-forest-50 text-forest-700 px-2.5 py-1 rounded-sm">{s}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Curiosidades */}
+            {cafe.curiosidades && (
+              <div className="border-t border-cream-100 pt-4 mb-4">
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-1.5">Curiosidades</p>
+                <p className="text-sm text-charcoal-600 leading-relaxed whitespace-pre-line">{cafe.curiosidades}</p>
+              </div>
+            )}
+
+            <div className="border-t border-cream-100 pt-4 space-y-4">
               <div className="flex items-center gap-4">
                 <span className="text-sm font-medium text-charcoal-600 w-24">Nota geral</span>
                 <StarRating
                   value={form.notaGeral}
-                  onChange={v => {
-                    updateCafeForm(cafe.id, { notaGeral: v });
-                    setExpandedCafe(cafe.id);
-                  }}
+                  onChange={v => updateCafeForm(cafe.id, { notaGeral: v })}
                   size="lg"
                 />
                 {form.notaGeral > 0 && (
@@ -295,68 +421,46 @@ export function ClientAvaliacoes() {
                 )}
               </div>
 
-              {isExpanded && (
-                <>
-                  {/* Sensorial profile */}
-                  <div className="space-y-3 p-4 bg-cream-50 rounded-sm">
-                    <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Perfil sensorial</p>
-                    {([
-                      { label: 'Aroma',      field: 'aroma'       as const },
-                      { label: 'Doçura',     field: 'docura'      as const },
-                      { label: 'Acidez',     field: 'acidez'      as const },
-                      { label: 'Corpo',      field: 'corpo'       as const },
-                      { label: 'Finalização', field: 'finalizacao' as const },
-                    ]).map(({ label, field }) => (
-                      <RatingRow
-                        key={field}
-                        label={label}
-                        value={form[field]}
-                        onChange={v => updateCafeForm(cafe.id, { [field]: v })}
-                      />
-                    ))}
-                  </div>
-
-                  <Textarea
-                    label="Comentário (opcional)"
-                    value={form.comentario}
-                    onChange={e => updateCafeForm(cafe.id, { comentario: e.target.value })}
-                    placeholder={`O que você achou do ${cafe.nome}?`}
-                    rows={3}
+              {/* Perfil sensorial — sempre visível */}
+              <div className="space-y-3 p-4 bg-cream-50 rounded-sm">
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Perfil sensorial</p>
+                {([
+                  { label: 'Aroma',       field: 'aroma'       as const },
+                  { label: 'Doçura',      field: 'docura'      as const },
+                  { label: 'Acidez',      field: 'acidez'      as const },
+                  { label: 'Corpo',       field: 'corpo'       as const },
+                  { label: 'Finalização', field: 'finalizacao' as const },
+                ]).map(({ label, field }) => (
+                  <RatingRow
+                    key={field}
+                    label={label}
+                    value={form[field]}
+                    onChange={v => updateCafeForm(cafe.id, { [field]: v })}
                   />
+                ))}
+              </div>
 
-                  {errors[cafe.id] && (
-                    <p className="text-sm text-red-500">{errors[cafe.id]}</p>
-                  )}
+              <Textarea
+                label="Comentário (opcional)"
+                value={form.comentario}
+                onChange={e => updateCafeForm(cafe.id, { comentario: e.target.value })}
+                placeholder={`O que você achou do ${cafe.nome}?`}
+                rows={3}
+              />
 
-                  <div className="flex gap-3">
-                    <Button
-                      variant="primary"
-                      loading={submitting[cafe.id]}
-                      disabled={form.notaGeral === 0}
-                      onClick={() => submitCafe(cafe.id)}
-                    >
-                      <Star size={14} />
-                      {existing ? 'Atualizar avaliação' : 'Enviar avaliação'}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => setExpandedCafe(null)}
-                    >
-                      Cancelar
-                    </Button>
-                  </div>
-                </>
+              {errors[cafe.id] && (
+                <p className="text-sm text-red-500">{errors[cafe.id]}</p>
               )}
 
-              {/* Show saved rating summary when collapsed and already reviewed */}
-              {!isExpanded && existing && (
-                <button
-                  onClick={() => setExpandedCafe(cafe.id)}
-                  className="text-xs text-forest-500 hover:underline"
-                >
-                  Editar avaliação
-                </button>
-              )}
+              <Button
+                variant="primary"
+                loading={submitting[cafe.id]}
+                disabled={form.notaGeral === 0}
+                onClick={() => submitCafe(cafe.id)}
+              >
+                <Star size={14} />
+                {existing ? 'Atualizar avaliação' : 'Enviar avaliação'}
+              </Button>
             </div>
           </Card>
         );

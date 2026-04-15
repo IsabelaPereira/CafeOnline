@@ -20,11 +20,26 @@ export async function getAvaliacoesCafe(clienteId?: string, edicaoId?: string): 
 }
 
 export async function upsertAvaliacaoBox(av: Omit<AvaliacaoBox, 'id' | 'createdAt'>): Promise<void> {
-  const { error } = await supabase.from('avaliacoes_box').upsert({ cliente_id: av.clienteId, edicao_id: av.edicaoId, nota_geral: av.notaGeral, comentario: av.comentario }, { onConflict: 'cliente_id,edicao_id' });
+  const { error } = await supabase.from('avaliacoes_box').upsert({
+    cliente_id: av.clienteId, edicao_id: av.edicaoId,
+    nota_geral: av.notaGeral > 0 ? av.notaGeral : null,
+    comentario: av.comentario,
+  }, { onConflict: 'cliente_id,edicao_id' });
   if (error) throw error;
 }
 
 export async function upsertAvaliacaoCafe(av: Omit<AvaliacaoCafe, 'id' | 'createdAt'>): Promise<void> {
-  const { error } = await supabase.from('avaliacoes_cafe').upsert({ cliente_id: av.clienteId, cafe_id: av.cafeId, edicao_id: av.edicaoId, nota_geral: av.notaGeral, aroma: av.aroma, docura: av.docura, acidez: av.acidez, corpo: av.corpo, finalizacao: av.finalizacao, comentario: av.comentario }, { onConflict: 'cliente_id,cafe_id' });
+  // Converte 0 → null para respeitar o check constraint (between 1 and 5)
+  const n = (v: number) => (v > 0 ? v : null);
+  const { error } = await supabase.from('avaliacoes_cafe').upsert({
+    cliente_id: av.clienteId, cafe_id: av.cafeId, edicao_id: av.edicaoId,
+    nota_geral:  n(av.notaGeral),
+    aroma:       n(av.aroma),
+    docura:      n(av.docura),
+    acidez:      n(av.acidez),
+    corpo:       n(av.corpo),
+    finalizacao: n(av.finalizacao),
+    comentario:  av.comentario,
+  }, { onConflict: 'cliente_id,cafe_id' });
   if (error) throw error;
 }
