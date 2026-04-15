@@ -124,6 +124,26 @@ export async function updatePedidoStatus(id: string, status: Pedido['status']): 
   if (error) throw error;
 }
 
+export async function cancelarEtiqueta(
+  pedidoId: string,
+): Promise<{ success?: boolean; message?: string; error?: string }> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token ?? supabaseKey;
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/cancel-shipping-label`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:  `Bearer ${token}`,
+      apikey:         supabaseKey,
+    },
+    body: JSON.stringify({ pedido_id: pedidoId }),
+  });
+  return res.json();
+}
+
 export async function gerarEtiqueta(
   pedidoId: string,
 ): Promise<{ success: boolean; cart_id?: string; label_url?: string; tracking_code?: string; error?: string }> {

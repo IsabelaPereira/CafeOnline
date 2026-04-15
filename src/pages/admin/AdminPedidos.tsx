@@ -4,7 +4,7 @@ import {
   Card, Badge, SearchBar, FilterBar, Select, Pagination,
   Modal, Button, SectionHeader, Input,
 } from '../../components/ui';
-import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, buscarClientePorEmail, gerarEtiqueta } from '../../services/pedidos.service';
+import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, buscarClientePorEmail, gerarEtiqueta, cancelarEtiqueta } from '../../services/pedidos.service';
 import { getAssinatura } from '../../services/assinaturas.service';
 import type { Pedido, Endereco, Assinatura } from '../../types';
 
@@ -40,6 +40,7 @@ export function AdminPedidos() {
   const [rastreio, setRastreio] = useState('');
   const [salvandoRastreio, setSalvandoRastreio] = useState(false);
   const [gerandoEtiqueta, setGerandoEtiqueta] = useState(false);
+  const [cancelandoEtiqueta, setCancelandoEtiqueta] = useState(false);
   const [erroEtiqueta, setErroEtiqueta] = useState('');
   const perPage = 10;
 
@@ -179,6 +180,28 @@ export function AdminPedidos() {
       setErroEtiqueta('Erro ao conectar com o servidor. Tente novamente.');
     } finally {
       setGerandoEtiqueta(false);
+    }
+  }
+
+  async function handleCancelarEtiqueta() {
+    if (!selected) return;
+    if (!confirm('Cancelar a etiqueta e estornar o valor no MelhorEnvio? O pedido voltará ao status "pago".')) return;
+    setCancelandoEtiqueta(true);
+    setErroEtiqueta('');
+    try {
+      const result = await cancelarEtiqueta(selected.id);
+      if (result.error) {
+        setErroEtiqueta(result.error);
+        return;
+      }
+      const atualizados = await getPedidos();
+      setPedidos(atualizados);
+      const updatedSelected = atualizados.find(p => p.id === selected.id) ?? null;
+      setSelected(updatedSelected);
+    } catch {
+      setErroEtiqueta('Erro ao cancelar a etiqueta. Tente novamente.');
+    } finally {
+      setCancelandoEtiqueta(false);
     }
   }
 
@@ -448,30 +471,70 @@ export function AdminPedidos() {
                   {carregandoAss && <RefreshCw size={12} className="text-forest-400 animate-spin ml-auto" />}
                 </div>
 
-                {assDetalhe ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {[
-                      { label: 'Assinante',   value: assDetalhe.clienteNome ?? '—' },
-                      { label: 'Plano',       value: assDetalhe.plano.nome },
-                      { label: 'Status',      value: <Badge variant={({ ativa:'active', pendente:'pending', inadimplente:'cancelled', cancelada:'inactive', pausada:'inactive' } as Record<string,'active'|'pending'|'cancelled'|'inactive'>)[assDetalhe.status] ?? 'inactive'}>{assDetalhe.status}</Badge> },
-                      { label: 'Preferência', value: assDetalhe.preferenciaCafe === 'grao' ? 'Grão' : `Moído (${assDetalhe.tipoMoagem ?? '—'})` },
-                      { label: 'Próx. cobrança', value: new Date(assDetalhe.proximaCobranca).toLocaleDateString('pt-BR') },
-                      ...(selected.cicloId ? [{ label: 'Ciclo', value: (() => {
-                        const ciclo = assDetalhe.ciclos.find(c => c.id === selected.cicloId);
-                        return ciclo ? `${String(ciclo.mes).padStart(2,'0')}/${ciclo.ano}` : '—';
-                      })() }] : []),
-                    ].map(info => (
-                      <div key={info.label} className="bg-white/70 rounded-sm p-2.5">
-                        <p className="text-xs text-forest-600 mb-0.5">{info.label}</p>
-                        <div className="text-sm font-medium text-charcoal-700">{info.value}</div>
+                {(() => {
+                  // Extrai período do número do pedido: DM-YYYYMM-xxx
+                  const match = selected.numero.match(/^DM-(\d{4})(\d{2})-/);
+                  const periodoStr = match ? `${match[2]}/${match[1]}` : null;
+
+                  // Ciclo correspondente (disponível quando assDetalhe carregou)
+                  const ciclo = assDetalhe?.ciclos.find(c => c.id === selected.cicloId) ?? null;
+
+                  return (
+                    <div className="space-y-3">
+                      {/* Grid de campos */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {/* Plano */}
+                        <div className="bg-white/70 rounded-sm p-2.5">
+                          <p className="text-xs text-forest-600 mb-0.5">Plano</p>
+                          <p className="text-sm font-medium text-charcoal-700">
+                            {assDetalhe ? assDetalhe.plano.nome : <span className="text-charcoal-300 italic">—</span>}
+                          </p>
+                        </div>
+
+                        {/* Período */}
+                        <div className="bg-white/70 rounded-sm p-2.5">
+                          <p className="text-xs text-forest-600 mb-0.5">Período</p>
+                          <p className="text-sm font-medium text-charcoal-700">
+                            {ciclo ? `${String(ciclo.mes).padStart(2,'0')}/${ciclo.ano}` : periodoStr ?? '—'}
+                          </p>
+                        </div>
+
+                        {/* Edição */}
+                        <div className="bg-white/70 rounded-sm p-2.5">
+                          <p className="text-xs text-forest-600 mb-0.5">Edição</p>
+                          <p className="text-sm font-medium text-charcoal-700">
+                            {ciclo?.edicaoTitulo ?? <span className="text-charcoal-300 italic">Sem edição</span>}
+                          </p>
+                        </div>
+
+                        {/* Status assinatura */}
+                        {assDetalhe && (
+                          <div className="bg-white/70 rounded-sm p-2.5">
+                            <p className="text-xs text-forest-600 mb-0.5">Status assinatura</p>
+                            <Badge variant={({ ativa:'active', pendente:'pending', inadimplente:'cancelled', cancelada:'inactive', pausada:'inactive' } as Record<string,'active'|'pending'|'cancelled'|'inactive'>)[assDetalhe.status] ?? 'inactive'}>
+                              {assDetalhe.status}
+                            </Badge>
+                          </div>
+                        )}
+
+                        {/* Preferência */}
+                        {assDetalhe && (
+                          <div className="bg-white/70 rounded-sm p-2.5">
+                            <p className="text-xs text-forest-600 mb-0.5">Preferência</p>
+                            <p className="text-sm font-medium text-charcoal-700">
+                              {assDetalhe.preferenciaCafe === 'grao' ? 'Grão' : `Moído (${assDetalhe.tipoMoagem ?? '—'})`}
+                            </p>
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                ) : !carregandoAss && (
-                  <p className="text-sm text-forest-600">
-                    ID da assinatura: <span className="font-mono text-xs">{selected.assinaturaId}</span>
-                  </p>
-                )}
+
+                      {/* ID da assinatura — sempre visível */}
+                      <p className="text-xs text-forest-600">
+                        ID: <span className="font-mono text-charcoal-500">{selected.assinaturaId}</span>
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -540,19 +603,36 @@ export function AdminPedidos() {
 
                 {selected.etiquetaUrl ? (
                   /* Etiqueta já gerada */
-                  <div className="flex flex-wrap items-center gap-3 p-3 bg-forest-50 border border-forest-200 rounded-sm">
-                    <Tag size={16} className="text-forest-500" />
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-forest-700">Etiqueta gerada</p>
-                      {selected.codigoRastreio && (
-                        <p className="text-xs text-charcoal-500 font-mono mt-0.5">{selected.codigoRastreio}</p>
-                      )}
-                    </div>
-                    <a href={selected.etiquetaUrl} target="_blank" rel="noopener noreferrer">
-                      <Button variant="primary" size="sm" icon={<ExternalLink size={13} />}>
-                        Imprimir etiqueta
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-3 p-3 bg-forest-50 border border-forest-200 rounded-sm">
+                      <Tag size={16} className="text-forest-500" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-forest-700">Etiqueta gerada</p>
+                        {selected.codigoRastreio && (
+                          <p className="text-xs text-charcoal-500 font-mono mt-0.5">{selected.codigoRastreio}</p>
+                        )}
+                      </div>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        loading={cancelandoEtiqueta}
+                        onClick={handleCancelarEtiqueta}
+                        icon={<X size={13} />}
+                      >
+                        Cancelar etiqueta
                       </Button>
-                    </a>
+                      <a href={selected.etiquetaUrl} target="_blank" rel="noopener noreferrer">
+                        <Button variant="primary" size="sm" icon={<ExternalLink size={13} />}>
+                          Imprimir etiqueta
+                        </Button>
+                      </a>
+                    </div>
+                    {erroEtiqueta && (
+                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-sm text-sm text-red-700">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        {erroEtiqueta}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   /* Sem etiqueta — gerar */
