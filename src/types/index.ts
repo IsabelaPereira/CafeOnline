@@ -286,7 +286,9 @@ export interface Reserva {
   data: string;
   horario: string;
   pessoas: number;
+  duracaoMins: number;
   mesaId?: string;
+  mesasAlocadas: string[];
   status: StatusReserva;
   observacoes?: string;
   observacoesInternas?: string;
@@ -298,9 +300,17 @@ export interface Reserva {
 export interface Mesa {
   id: string;
   numero: string;
+  nome?: string;
   capacidade: number;
   ativa: boolean;
   descricao?: string;
+}
+
+export interface DiaFechado {
+  id: string;
+  data: string;
+  motivo?: string;
+  createdAt: string;
 }
 
 // ---- EDIÇÕES DO CLUBE ----
@@ -472,8 +482,8 @@ export interface Configuracoes {
   cafeteria: {
     horarios: HorarioFuncionamento[];
     capacidadeTotal: number;
-    tempoReservaMins: number;
-    aprovacaoAutomatica: boolean;
+    aprovacaoAutomaticaAte: number;  // 0 = nunca; N = aprova auto até N pessoas
+    tempoAntecedenciaMin: number;    // mínimo de minutos de antecedência
   };
   cobranca: {
     diaCobranca: number;

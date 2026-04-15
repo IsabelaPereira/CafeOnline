@@ -1,169 +1,181 @@
-import React, { useState } from 'react';
-import { Settings, Save, ExternalLink } from 'lucide-react';
-import { Card, Button, Input, Textarea, Select, SectionHeader, Tabs } from '../../components/ui';
+import React, { useEffect, useState } from 'react';
+import { Save, Loader2 } from 'lucide-react';
+import { Card, Button, Input, Textarea, SectionHeader, Tabs } from '../../components/ui';
+import { getConfiguracoes, saveConfiguracoes } from '../../services/configuracoes.service';
 
 export function AdminConfiguracoes() {
   const [tab, setTab] = useState('empresa');
-  const [saved, setSaved] = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [savedMsg, setSavedMsg] = useState('');
 
-  const handleSave = async () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+  const [empresa, setEmpresa] = useState({
+    nome: '', email: '', telefone: '', whatsapp: '',
+    endereco: '', cep: '', cidade: '', estado: '',
+    instagram: '', facebook: '',
+  });
+
+  const [cobranca, setCobranca] = useState({
+    diaCobranca: '5', tentativasMaximas: '3', intervaloDiasTentativas: '3',
+  });
+
+  useEffect(() => {
+    getConfiguracoes().then(cfg => {
+      setEmpresa({
+        nome:      cfg.empresa.nome      ?? '',
+        email:     cfg.empresa.email     ?? '',
+        telefone:  cfg.empresa.telefone  ?? '',
+        whatsapp:  cfg.empresa.whatsapp  ?? '',
+        endereco:  cfg.empresa.endereco  ?? '',
+        cep:       cfg.empresa.cep       ?? '',
+        cidade:    cfg.empresa.cidade    ?? '',
+        estado:    cfg.empresa.estado    ?? '',
+        instagram: cfg.empresa.instagram ?? '',
+        facebook:  cfg.empresa.facebook  ?? '',
+      });
+      setCobranca({
+        diaCobranca:             String(cfg.cobranca.diaCobranca             ?? 5),
+        tentativasMaximas:       String(cfg.cobranca.tentativasMaximas       ?? 3),
+        intervaloDiasTentativas: String(cfg.cobranca.intervaloDiasTentativas ?? 3),
+      });
+    }).finally(() => setLoading(false));
+  }, []);
+
+  async function handleSalvarEmpresa() {
+    setSalvando(true);
+    try {
+      await saveConfiguracoes({
+        empresa: {
+          nome:      empresa.nome,
+          email:     empresa.email,
+          telefone:  empresa.telefone,
+          whatsapp:  empresa.whatsapp,
+          endereco:  empresa.endereco,
+          cep:       empresa.cep,
+          cidade:    empresa.cidade,
+          estado:    empresa.estado,
+          instagram: empresa.instagram || undefined,
+          facebook:  empresa.facebook  || undefined,
+        },
+      });
+      setSavedMsg('Salvo!');
+      setTimeout(() => setSavedMsg(''), 2500);
+    } catch { alert('Erro ao salvar configurações.'); }
+    finally { setSalvando(false); }
+  }
+
+  async function handleSalvarCobranca() {
+    setSalvando(true);
+    try {
+      await saveConfiguracoes({
+        cobranca: {
+          diaCobranca:             parseInt(cobranca.diaCobranca)             || 5,
+          tentativasMaximas:       parseInt(cobranca.tentativasMaximas)       || 3,
+          intervaloDiasTentativas: parseInt(cobranca.intervaloDiasTentativas) || 3,
+        },
+      });
+      setSavedMsg('Salvo!');
+      setTimeout(() => setSavedMsg(''), 2500);
+    } catch { alert('Erro ao salvar configurações.'); }
+    finally { setSalvando(false); }
+  }
+
+  const e = (field: keyof typeof empresa) => (ev: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setEmpresa(p => ({ ...p, [field]: ev.target.value }));
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 size={24} className="animate-spin text-charcoal-400" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <SectionHeader
-        title="Configurações"
-        subtitle="Configurações gerais do sistema"
-      />
+      <SectionHeader title="Configurações" subtitle="Configurações gerais do sistema" />
 
       <Tabs
         tabs={[
-          { id: 'empresa', label: 'Empresa' },
-          { id: 'integracoes', label: 'Integrações' },
-          { id: 'cobranca', label: 'Cobrança' },
+          { id: 'empresa',    label: 'Empresa' },
+          { id: 'cobranca',   label: 'Cobrança' },
           { id: 'permissoes', label: 'Permissões' },
         ]}
         active={tab}
         onChange={setTab}
       />
 
+      {/* ── EMPRESA ────────────────────────────────────────────────────── */}
       {tab === 'empresa' && (
         <Card>
           <h3 className="font-serif text-xl text-charcoal-700 mb-6">Dados da empresa</h3>
           <div className="space-y-5 max-w-2xl">
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Nome da empresa" defaultValue="Das Matas Cafés Especiais" />
-              <Input label="E-mail de contato" defaultValue="contato@dasmatas.com.br" />
+              <Input label="Nome da empresa" value={empresa.nome}     onChange={e('nome')} />
+              <Input label="E-mail de contato" type="email" value={empresa.email} onChange={e('email')} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Telefone" defaultValue="(11) 99999-8888" />
-              <Input label="WhatsApp" defaultValue="(11) 99999-8888" />
+              <Input label="Telefone"  value={empresa.telefone}  onChange={e('telefone')} placeholder="(11) 99999-8888" />
+              <Input label="WhatsApp"  value={empresa.whatsapp}  onChange={e('whatsapp')} placeholder="5511999998888" />
             </div>
-            <Textarea label="Endereço completo" defaultValue="Rua dos Cafezais, 245 — Jardim Paulista, São Paulo, SP" rows={2} />
+            <Input label="Endereço" value={empresa.endereco} onChange={e('endereco')} placeholder="Rua, número, bairro" />
+            <div className="grid grid-cols-3 gap-4">
+              <Input label="CEP"    value={empresa.cep}    onChange={e('cep')}    placeholder="00000-000" />
+              <Input label="Cidade" value={empresa.cidade} onChange={e('cidade')} placeholder="São Paulo" />
+              <Input label="Estado (UF)" value={empresa.estado} onChange={e('estado')} placeholder="SP" maxLength={2} />
+            </div>
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Instagram" defaultValue="@dasmatas.cafe" />
-              <Input label="Facebook" defaultValue="dasmatas.cafe" />
+              <Input label="Instagram" value={empresa.instagram} onChange={e('instagram')} placeholder="@dasmatas" />
+              <Input label="Facebook"  value={empresa.facebook}  onChange={e('facebook')}  placeholder="dasmatas" />
             </div>
-            <div>
-              <h4 className="font-medium text-charcoal-700 mb-3 text-sm">SEO Global</h4>
-              <div className="space-y-3">
-                <Input label="Meta Title padrão" defaultValue="Das Matas — Clube de Cafés Especiais" />
-                <Textarea label="Meta Description padrão" defaultValue="Curadoria mensal de cafés especiais. Todo mês, dois cafés diferentes na sua casa." rows={2} />
-              </div>
+            <div className="flex items-center gap-3">
+              <Button variant="primary" onClick={handleSalvarEmpresa} disabled={salvando}>
+                {salvando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Salvar configurações
+              </Button>
+              {savedMsg && <span className="text-sm text-forest-600 font-medium">{savedMsg}</span>}
             </div>
-            <Button variant="primary" onClick={handleSave} loading={saved} icon={<Save size={14} />}>
-              {saved ? 'Salvo!' : 'Salvar configurações'}
-            </Button>
           </div>
         </Card>
       )}
 
-      {tab === 'integracoes' && (
-        <div className="space-y-5">
-          {[
-            {
-              nome: 'Pagar.me',
-              descricao: 'Gateway de pagamento para assinaturas e pedidos.',
-              status: 'placeholder',
-              fields: [
-                { label: 'API Key (Produção)', placeholder: 'pk_live_...' },
-                { label: 'Secret Key', placeholder: 'sk_live_...' },
-              ],
-            },
-            {
-              nome: 'Stripe',
-              descricao: 'Gateway de pagamento alternativo internacional.',
-              status: 'placeholder',
-              fields: [
-                { label: 'Publishable Key', placeholder: 'pk_live_...' },
-                { label: 'Secret Key', placeholder: 'sk_live_...' },
-                { label: 'Webhook Secret', placeholder: 'whsec_...' },
-              ],
-            },
-            {
-              nome: 'Melhor Envio',
-              descricao: 'Cálculo de frete e gestão logística.',
-              status: 'placeholder',
-              fields: [
-                { label: 'Token de acesso', placeholder: 'Bearer token...' },
-              ],
-            },
-            {
-              nome: 'WhatsApp (Z-API)',
-              descricao: 'Automações e comunicação via WhatsApp.',
-              status: 'placeholder',
-              fields: [
-                { label: 'Instance ID', placeholder: 'INSTANCE_ID' },
-                { label: 'Token', placeholder: 'TOKEN' },
-              ],
-            },
-          ].map(integracao => (
-            <Card key={integracao.nome}>
-              <div className="flex items-start justify-between mb-5">
-                <div>
-                  <h3 className="font-serif text-xl text-charcoal-700">{integracao.nome}</h3>
-                  <p className="text-sm text-charcoal-400 mt-0.5">{integracao.descricao}</p>
-                </div>
-                <span className="px-2 py-0.5 bg-gold-100 text-gold-600 text-xs rounded-full border border-gold-200">
-                  Aguardando configuração
-                </span>
-              </div>
-              <div className="space-y-3 max-w-lg">
-                {integracao.fields.map(field => (
-                  <Input key={field.label} label={field.label} placeholder={field.placeholder} type="password" />
-                ))}
-              </div>
-              <div className="flex gap-3 mt-5">
-                <Button variant="primary" size="sm">Salvar credenciais</Button>
-                <Button variant="ghost" size="sm">
-                  <ExternalLink size={14} />
-                  Documentação
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
+      {/* ── COBRANÇA ───────────────────────────────────────────────────── */}
       {tab === 'cobranca' && (
         <Card>
           <h3 className="font-serif text-xl text-charcoal-700 mb-6">Configurações de cobrança</h3>
           <div className="space-y-5 max-w-lg">
-            <Select
+            <Input
               label="Dia de cobrança das assinaturas"
-              options={Array.from({ length: 28 }, (_, i) => ({
-                value: String(i + 1),
-                label: `Dia ${i + 1}`,
-              }))}
-              defaultValue="5"
+              type="number" min="1" max="28"
+              value={cobranca.diaCobranca}
+              onChange={ev => setCobranca(p => ({ ...p, diaCobranca: ev.target.value }))}
+              hint="Dia do mês em que as cobranças são processadas"
             />
             <Input
               label="Tentativas máximas de cobrança"
-              type="number"
-              defaultValue="3"
+              type="number" min="1" max="10"
+              value={cobranca.tentativasMaximas}
+              onChange={ev => setCobranca(p => ({ ...p, tentativasMaximas: ev.target.value }))}
               hint="Número de tentativas antes de marcar como inadimplente"
             />
             <Input
               label="Intervalo entre tentativas (dias)"
-              type="number"
-              defaultValue="3"
+              type="number" min="1"
+              value={cobranca.intervaloDiasTentativas}
+              onChange={ev => setCobranca(p => ({ ...p, intervaloDiasTentativas: ev.target.value }))}
             />
-            <Select
-              label="Ação após inadimplência"
-              options={[
-                { value: 'pausar', label: 'Pausar assinatura' },
-                { value: 'cancelar', label: 'Cancelar assinatura' },
-                { value: 'manter', label: 'Manter ativa e notificar' },
-              ]}
-              defaultValue="pausar"
-            />
-            <Button variant="primary" onClick={handleSave}>Salvar configurações</Button>
+            <div className="flex items-center gap-3">
+              <Button variant="primary" onClick={handleSalvarCobranca} disabled={salvando}>
+                {salvando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Salvar configurações
+              </Button>
+              {savedMsg && <span className="text-sm text-forest-600 font-medium">{savedMsg}</span>}
+            </div>
           </div>
         </Card>
       )}
 
+      {/* ── PERMISSÕES ─────────────────────────────────────────────────── */}
       {tab === 'permissoes' && (
         <Card>
           <h3 className="font-serif text-xl text-charcoal-700 mb-6">Perfis de acesso</h3>
@@ -184,20 +196,9 @@ export function AdminConfiguracoes() {
                 ].map(mod => (
                   <tr key={mod}>
                     <td className="px-4 py-3 text-sm text-charcoal-700">{mod}</td>
-                    {[
-                      [true, true, true, true, true, true],
-                      [true, true, true, false, false, true],
-                      [true, false, true, false, false, false],
-                      [true, false, false, true, false, true],
-                      [true, false, false, false, true, false],
-                      [true, false, false, false, false, false],
-                    ][['Dashboard', 'Pedidos', 'Assinaturas', 'CRM / Leads', 'Reservas', 'Produtos', 'Blog', 'Financeiro', 'Logística', 'Relatórios', 'Configurações'].indexOf(mod) % 6]?.map((has, i) => (
+                    {[true, true, true, true, true, true].map((_, i) => (
                       <td key={i} className="px-4 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          defaultChecked={has}
-                          className="accent-forest-500 w-4 h-4"
-                        />
+                        <input type="checkbox" defaultChecked className="accent-forest-500 w-4 h-4" />
                       </td>
                     ))}
                   </tr>
@@ -205,7 +206,6 @@ export function AdminConfiguracoes() {
               </tbody>
             </table>
           </div>
-          <Button variant="primary" className="mt-5">Salvar permissões</Button>
         </Card>
       )}
     </div>
