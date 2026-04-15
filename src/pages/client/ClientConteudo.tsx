@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { getEdicoes } from '../../services/edicoes.service';
 import { Badge } from '../../components/ui';
+import { useClienteAssinaturas } from '../../hooks/useCliente';
 import type { EdicaoClube } from '../../types';
 
 function EdicaoCard({ edicao, onClick }: { edicao: EdicaoClube; onClick: () => void }) {
@@ -131,6 +132,8 @@ function CafeDetail({ cafe }: { cafe: EdicaoClube['cafes'][0] }) {
 export function ClientConteudo() {
   const [edicoes, setEdicoes] = useState<EdicaoClube[]>([]);
   const [edicaoSelecionada, setEdicaoSelecionada] = useState<EdicaoClube | null>(null);
+  const { assinaturas } = useClienteAssinaturas();
+  const assinaAtiva = assinaturas.some(a => a.status === 'ativa');
 
   useEffect(() => {
     getEdicoes(true).then(setEdicoes).catch(console.error);
@@ -160,53 +163,97 @@ export function ClientConteudo() {
           </p>
         </div>
 
-        {/* Descrição */}
-        <div className="bg-white rounded-sm border border-cream-200 p-6">
-          <p className="text-charcoal-600 leading-relaxed">{edicaoSelecionada.descricao}</p>
-          {edicaoSelecionada.textoExclusivo && (
-            <p className="text-charcoal-500 leading-relaxed mt-4 text-sm">{edicaoSelecionada.textoExclusivo}</p>
-          )}
-        </div>
-
-        {/* Video */}
-        {edicaoSelecionada.videoYoutube && (
-          <div className="bg-white rounded-sm border border-cream-200 p-6">
-            <h3 className="font-serif text-xl text-charcoal-700 mb-4 flex items-center gap-2">
-              <Play size={20} className="text-earth-400" />
-              Vídeo exclusivo
-            </h3>
-            <div className="aspect-video bg-charcoal-700 rounded-sm flex items-center justify-center">
-              <div className="text-center">
-                <Play size={48} className="text-white/50 mx-auto mb-3" />
-                <p className="text-white/60 text-sm">Vídeo disponível para assinantes</p>
+        {/* Conteúdo bloqueado para não-assinantes */}
+        {!assinaAtiva ? (
+          <div className="relative rounded-sm overflow-hidden">
+            {/* Conteúdo embaçado */}
+            <div className="blur-sm pointer-events-none select-none space-y-6">
+              <div className="bg-white rounded-sm border border-cream-200 p-6">
+                <p className="text-charcoal-600 leading-relaxed">{edicaoSelecionada.descricao}</p>
+                <p className="text-charcoal-500 leading-relaxed mt-4 text-sm">
+                  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
+                </p>
+              </div>
+              <div className="bg-white rounded-sm border border-cream-200 p-6">
+                <div className="aspect-video bg-charcoal-700 rounded-sm" />
+              </div>
+              <div className="space-y-4">
+                {edicaoSelecionada.cafes.map(cafe => (
+                  <div key={cafe.id} className="bg-cream-50 rounded-sm border border-cream-200 p-5">
+                    <h4 className="font-serif text-lg text-charcoal-700 mb-1">{cafe.nome}</h4>
+                    <p className="text-sm text-charcoal-500">{cafe.produtor} · {cafe.regiao}</p>
+                  </div>
+                ))}
               </div>
             </div>
+            {/* Overlay */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 bg-cream-50/75 backdrop-blur-[1px]">
+              <div className="w-14 h-14 bg-forest-100 rounded-full flex items-center justify-center mb-4">
+                <Lock size={24} className="text-forest-600" />
+              </div>
+              <h3 className="font-serif text-2xl text-charcoal-700 mb-2">Conteúdo exclusivo para membros</h3>
+              <p className="text-sm text-charcoal-500 mb-6 max-w-sm">
+                Assine o Clube Das Matas para ter acesso às informações detalhadas de cada edição, vídeos exclusivos e muito mais.
+              </p>
+              <Link
+                to="/assinar"
+                className="px-6 py-3 bg-forest-500 text-cream-100 text-sm font-medium rounded-sm hover:bg-forest-600 transition-colors"
+              >
+                Assinar agora
+              </Link>
+            </div>
           </div>
+        ) : (
+          <>
+            {/* Descrição */}
+            <div className="bg-white rounded-sm border border-cream-200 p-6">
+              <p className="text-charcoal-600 leading-relaxed">{edicaoSelecionada.descricao}</p>
+              {edicaoSelecionada.textoExclusivo && (
+                <p className="text-charcoal-500 leading-relaxed mt-4 text-sm">{edicaoSelecionada.textoExclusivo}</p>
+              )}
+            </div>
+
+            {/* Video */}
+            {edicaoSelecionada.videoYoutube && (
+              <div className="bg-white rounded-sm border border-cream-200 p-6">
+                <h3 className="font-serif text-xl text-charcoal-700 mb-4 flex items-center gap-2">
+                  <Play size={20} className="text-earth-400" />
+                  Vídeo exclusivo
+                </h3>
+                <div className="aspect-video bg-charcoal-700 rounded-sm flex items-center justify-center">
+                  <div className="text-center">
+                    <Play size={48} className="text-white/50 mx-auto mb-3" />
+                    <p className="text-white/60 text-sm">Vídeo disponível para assinantes</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Cafés */}
+            <div>
+              <h3 className="font-serif text-2xl text-charcoal-700 mb-4">Os cafés desta edição</h3>
+              <div className="space-y-4">
+                {edicaoSelecionada.cafes.map(cafe => (
+                  <CafeDetail key={cafe.id} cafe={cafe} />
+                ))}
+              </div>
+            </div>
+
+            {/* CTA avaliação */}
+            <div className="bg-forest-500 rounded-sm p-6 text-center">
+              <Star size={32} className="text-gold-400 mx-auto mb-3" />
+              <h3 className="font-serif text-xl text-cream-100 mb-2">Avalie estes cafés</h3>
+              <p className="text-forest-200 text-sm mb-4">Compartilhe sua experiência com a comunidade Das Matas.</p>
+              <Link
+                to="/cliente/avaliacoes"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-earth-400 text-cream-100 text-sm font-medium tracking-wider uppercase rounded-sm hover:bg-earth-500 transition-colors"
+              >
+                Avaliar agora
+                <ArrowRight size={14} />
+              </Link>
+            </div>
+          </>
         )}
-
-        {/* Cafés */}
-        <div>
-          <h3 className="font-serif text-2xl text-charcoal-700 mb-4">Os cafés desta edição</h3>
-          <div className="space-y-4">
-            {edicaoSelecionada.cafes.map(cafe => (
-              <CafeDetail key={cafe.id} cafe={cafe} />
-            ))}
-          </div>
-        </div>
-
-        {/* CTA avaliação */}
-        <div className="bg-forest-500 rounded-sm p-6 text-center">
-          <Star size={32} className="text-gold-400 mx-auto mb-3" />
-          <h3 className="font-serif text-xl text-cream-100 mb-2">Avalie estes cafés</h3>
-          <p className="text-forest-200 text-sm mb-4">Compartilhe sua experiência com a comunidade Das Matas.</p>
-          <Link
-            to="/cliente/avaliacoes"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-earth-400 text-cream-100 text-sm font-medium tracking-wider uppercase rounded-sm hover:bg-earth-500 transition-colors"
-          >
-            Avaliar agora
-            <ArrowRight size={14} />
-          </Link>
-        </div>
       </div>
     );
   }
@@ -220,23 +267,54 @@ export function ClientConteudo() {
         </p>
       </div>
 
-      {/* Lock info for non-members */}
-      <div className="bg-forest-50 border border-forest-200 rounded-sm p-4 flex items-center gap-3">
-        <Lock size={18} className="text-forest-500 shrink-0" />
-        <p className="text-sm text-forest-700">
-          Conteúdo exclusivo para membros ativos do Clube Das Matas.
-        </p>
-      </div>
+      {assinaAtiva ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {edicoes.map(edicao => (
+            <EdicaoCard
+              key={edicao.id}
+              edicao={edicao}
+              onClick={() => setEdicaoSelecionada(edicao)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="relative rounded-sm overflow-hidden">
+          {/* Cards embaçados */}
+          <div className="blur-sm pointer-events-none select-none grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {edicoes.map(edicao => (
+              <EdicaoCard key={edicao.id} edicao={edicao} onClick={() => {}} />
+            ))}
+            {/* Placeholder se não houver edições ainda */}
+            {edicoes.length === 0 && [1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-sm border border-cream-200 overflow-hidden">
+                <div className="aspect-video bg-gradient-to-br from-earth-200 to-forest-200" />
+                <div className="p-5 space-y-2">
+                  <div className="h-4 bg-cream-200 rounded w-3/4" />
+                  <div className="h-3 bg-cream-100 rounded w-full" />
+                  <div className="h-3 bg-cream-100 rounded w-2/3" />
+                </div>
+              </div>
+            ))}
+          </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {edicoes.map(edicao => (
-          <EdicaoCard
-            key={edicao.id}
-            edicao={edicao}
-            onClick={() => setEdicaoSelecionada(edicao)}
-          />
-        ))}
-      </div>
+          {/* Overlay CTA */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 bg-cream-50/75 backdrop-blur-[1px]" style={{ minHeight: '320px' }}>
+            <div className="w-14 h-14 bg-forest-100 rounded-full flex items-center justify-center mb-4">
+              <Lock size={24} className="text-forest-600" />
+            </div>
+            <h3 className="font-serif text-2xl text-charcoal-700 mb-2">Conteúdo exclusivo para membros</h3>
+            <p className="text-sm text-charcoal-500 mb-6 max-w-sm">
+              Assine o Clube Das Matas para ter acesso a edições mensais, vídeos exclusivos, fichas técnicas dos cafés e muito mais.
+            </p>
+            <Link
+              to="/assinar"
+              className="px-6 py-3 bg-forest-500 text-cream-100 text-sm font-medium rounded-sm hover:bg-forest-600 transition-colors"
+            >
+              Assinar agora
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -311,30 +311,53 @@ export function ClientAssinaturas() {
               </button>
               {expandedCiclos[assinatura.id] && (
                 <div className="border-t border-cream-200 px-6 py-4 space-y-3">
-                  {assinatura.ciclos.map(ciclo => (
-                    <div key={ciclo.id} className="flex items-center gap-4 p-4 bg-cream-50 rounded-sm">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                        ciclo.status === 'entregue' ? 'bg-forest-100 text-forest-500' :
-                        ciclo.status === 'enviado'  ? 'bg-gold-100 text-gold-500' :
-                        'bg-cream-200 text-charcoal-400'
-                      }`}>
-                        {ciclo.status === 'entregue' ? <Check size={16} /> :
-                         ciclo.status === 'enviado'  ? <Package size={16} /> :
-                         <span className="text-xs font-medium">{ciclo.mes}</span>}
+                  {assinatura.ciclos.map(ciclo => {
+                    const inner = (
+                      <>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                          ciclo.status === 'entregue' ? 'bg-forest-100 text-forest-500' :
+                          ciclo.status === 'enviado'  ? 'bg-gold-100 text-gold-500' :
+                          'bg-cream-200 text-charcoal-400'
+                        }`}>
+                          {ciclo.status === 'entregue' ? <Check size={16} /> :
+                           ciclo.status === 'enviado'  ? <Package size={16} /> :
+                           <span className="text-xs font-medium">{ciclo.mes}</span>}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-charcoal-700">
+                            {new Date(ciclo.ano, ciclo.mes - 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                          </p>
+                          {ciclo.edicaoTitulo && (
+                            <p className="text-xs text-charcoal-400">{ciclo.edicaoTitulo}</p>
+                          )}
+                          {ciclo.codigoRastreio && (
+                            <p className="text-xs text-charcoal-400">Rastreio: {ciclo.codigoRastreio}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={ciclo.status === 'entregue' ? 'active' : ciclo.status === 'enviado' ? 'pending' : 'inactive'}>
+                            {ciclo.status}
+                          </Badge>
+                          {ciclo.edicaoId && (
+                            <span className="text-xs text-forest-500 font-medium">Ver detalhes →</span>
+                          )}
+                        </div>
+                      </>
+                    );
+                    return ciclo.edicaoId ? (
+                      <Link
+                        key={ciclo.id}
+                        to={`/cliente/avaliacoes?edicao=${ciclo.edicaoId}`}
+                        className="flex items-center gap-4 p-4 bg-cream-50 rounded-sm hover:bg-cream-100 transition-colors"
+                      >
+                        {inner}
+                      </Link>
+                    ) : (
+                      <div key={ciclo.id} className="flex items-center gap-4 p-4 bg-cream-50 rounded-sm">
+                        {inner}
                       </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-charcoal-700">
-                          {new Date(ciclo.ano, ciclo.mes - 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                        </p>
-                        {ciclo.codigoRastreio && (
-                          <p className="text-xs text-charcoal-400">Rastreio: {ciclo.codigoRastreio}</p>
-                        )}
-                      </div>
-                      <Badge variant={ciclo.status === 'entregue' ? 'active' : ciclo.status === 'enviado' ? 'pending' : 'inactive'}>
-                        {ciclo.status}
-                      </Badge>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </Card>

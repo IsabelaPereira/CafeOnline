@@ -31,6 +31,7 @@ import { ClientPerfil } from './pages/client/ClientPerfil';
 import { ClientRastreamentos } from './pages/client/ClientRastreamentos';
 import { ClientEnderecos } from './pages/client/ClientEnderecos';
 import { ClientPagamentos } from './pages/client/ClientPagamentos';
+import { ClientReservas } from './pages/client/ClientReservas';
 
 // Admin Pages
 import { AdminDashboard } from './pages/admin/AdminDashboard';
@@ -357,6 +358,12 @@ function AppRoutes() {
       <Route path="/cliente/pagamentos" element={
         <ProtectedClientRoute>
           <ClientLayout><ClientPagamentos /></ClientLayout>
+        </ProtectedClientRoute>
+      } />
+
+      <Route path="/cliente/reservas" element={
+        <ProtectedClientRoute>
+          <ClientLayout><ClientReservas /></ClientLayout>
         </ProtectedClientRoute>
       } />
 

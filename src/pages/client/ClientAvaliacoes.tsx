@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Star, Coffee, PlayCircle, BookOpen } from 'lucide-react';
 import { Card, Button, Textarea, StarRating } from '../../components/ui';
 import { getEdicoes } from '../../services/edicoes.service';
@@ -45,6 +46,7 @@ function youtubeEmbedUrl(url: string): string | null {
 
 export function ClientAvaliacoes() {
   const { cliente } = useCliente();
+  const [searchParams] = useSearchParams();
 
   const [edicoes, setEdicoes] = useState<EdicaoClube[]>([]);
   const [selectedEdicao, setSelectedEdicao] = useState<EdicaoClube | null>(null);
@@ -66,7 +68,10 @@ export function ClientAvaliacoes() {
   useEffect(() => {
     getEdicoes(true).then(data => {
       setEdicoes(data);
-      if (data.length > 0) setSelectedEdicao(data[0]);
+      if (data.length === 0) return;
+      const edicaoParam = searchParams.get('edicao');
+      const match = edicaoParam ? data.find(e => e.id === edicaoParam) : null;
+      setSelectedEdicao(match ?? data[0]);
     }).catch(console.error);
   }, []);
 

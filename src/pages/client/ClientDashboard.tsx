@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Package, Star, ShoppingBag, BookOpen, Calendar, ArrowRight, Truck } from 'lucide-react';
+import { Package, Star, ShoppingBag, BookOpen, Calendar, ArrowRight, Truck, Lock } from 'lucide-react';
 import { Card, Badge, StatCard } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { useClienteAssinaturas, useClientePedidos } from '../../hooks/useCliente';
@@ -12,7 +12,8 @@ export function ClientDashboard() {
   const { pedidos, loading: pLoading } = useClientePedidos();
   const { data: edicoes, loading: eLoading } = useEdicoes(true);
 
-  const assinatura = assinaturas[0] ?? null;
+  const assinatura   = assinaturas[0] ?? null;
+  const assinaAtiva  = assinatura?.status === 'ativa';
   const ultimoPedido = pedidos[0] ?? null;
   const ultimaEdicao = edicoes[0] ?? null;
 
@@ -138,42 +139,65 @@ export function ClientDashboard() {
 
         {/* Edição atual */}
         {ultimaEdicao ? (
-          <Card>
-            <div className="flex items-start justify-between mb-5">
-              <div>
-                <h2 className="font-serif text-xl text-charcoal-700">Edição do Mês</h2>
-                <p className="text-sm text-charcoal-400 mt-0.5">{ultimaEdicao.titulo}</p>
-              </div>
-              <Badge variant="active">Nova</Badge>
-            </div>
-
-            <div className="space-y-4 mb-5">
-              {ultimaEdicao.cafes.map((cafe, i) => (
-                <div key={cafe.id} className="flex gap-3 p-3 bg-cream-50 rounded-sm">
-                  <div className="w-10 h-10 bg-earth-200 rounded-sm flex items-center justify-center shrink-0">
-                    <span className="text-earth-600 font-serif text-sm">{i + 1}</span>
-                  </div>
+          <div className="relative">
+            <Card className={assinaAtiva ? '' : 'overflow-hidden'}>
+              <div className={assinaAtiva ? '' : 'blur-sm pointer-events-none select-none'}>
+                <div className="flex items-start justify-between mb-5">
                   <div>
-                    <p className="font-medium text-sm text-charcoal-700">{cafe.nome}</p>
-                    <p className="text-xs text-charcoal-400">{cafe.regiao} · {cafe.processo}</p>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {cafe.notasSensoriais.slice(0, 3).map(n => (
-                        <span key={n} className="text-xs text-charcoal-500">#{n}</span>
-                      ))}
-                    </div>
+                    <h2 className="font-serif text-xl text-charcoal-700">Edição do Mês</h2>
+                    <p className="text-sm text-charcoal-400 mt-0.5">{ultimaEdicao.titulo}</p>
                   </div>
+                  <Badge variant="active">Nova</Badge>
                 </div>
-              ))}
-            </div>
 
-            <Link
-              to="/cliente/conteudo"
-              className="flex items-center gap-1.5 text-sm text-forest-500 font-medium hover:text-forest-600 group"
-            >
-              Ver conteúdo exclusivo
-              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-            </Link>
-          </Card>
+                <div className="space-y-4 mb-5">
+                  {ultimaEdicao.cafes.map((cafe, i) => (
+                    <div key={cafe.id} className="flex gap-3 p-3 bg-cream-50 rounded-sm">
+                      <div className="w-10 h-10 bg-earth-200 rounded-sm flex items-center justify-center shrink-0">
+                        <span className="text-earth-600 font-serif text-sm">{i + 1}</span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm text-charcoal-700">{cafe.nome}</p>
+                        <p className="text-xs text-charcoal-400">{cafe.regiao} · {cafe.processo}</p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {cafe.notasSensoriais.slice(0, 3).map(n => (
+                            <span key={n} className="text-xs text-charcoal-500">#{n}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <Link
+                  to="/cliente/conteudo"
+                  className="flex items-center gap-1.5 text-sm text-forest-500 font-medium hover:text-forest-600 group"
+                >
+                  Ver conteúdo exclusivo
+                  <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                </Link>
+              </div>
+            </Card>
+
+            {/* Overlay para não-assinantes */}
+            {!assinaAtiva && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 bg-cream-50/70 rounded-sm backdrop-blur-[1px]">
+                <div className="w-12 h-12 bg-forest-100 rounded-full flex items-center justify-center mb-3">
+                  <Lock size={20} className="text-forest-600" />
+                </div>
+                <h3 className="font-serif text-lg text-charcoal-700 mb-1">Conteúdo exclusivo</h3>
+                <p className="text-sm text-charcoal-500 mb-4 max-w-xs">
+                  Assine o clube Das Matas para receber as edições mensais e ter acesso a este conteúdo exclusivo.
+                </p>
+                <Link
+                  to="/assinar"
+                  className="px-5 py-2.5 bg-forest-500 text-cream-100 text-sm font-medium rounded-sm hover:bg-forest-600 transition-colors"
+                >
+                  Assinar agora
+                </Link>
+              </div>
+            )}
+          </div>
         ) : (
           <Card className="flex flex-col items-center justify-center py-10 text-center">
             <BookOpen size={40} className="text-charcoal-200 mb-3" />

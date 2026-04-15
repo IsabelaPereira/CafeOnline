@@ -51,6 +51,8 @@ export async function createReserva(r: Omit<Reserva, 'id' | 'createdAt'>): Promi
     duracao_mins: r.duracaoMins ?? 90,
     mesas_alocadas: r.mesasAlocadas ?? [],
     observacoes: r.observacoes, status: r.status ?? 'solicitada',
+    cliente_id: r.clienteId ?? null,
+    lead_id:    r.leadId    ?? null,
   });
   if (error) throw error;
   // Retorna objeto local suficiente para uso imediato (sem round-trip de leitura)

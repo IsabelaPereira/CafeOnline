@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   User, Star, ShoppingBag, Truck, BookOpen, Heart,
-  MapPin, CreditCard, LogOut, Coffee, Menu, X, ChevronRight
+  MapPin, CreditCard, LogOut, Coffee, Menu, X, ChevronRight, Calendar
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -13,6 +13,7 @@ const navLinks = [
   { icon: <Truck size={16} />, label: 'Rastreamentos', to: '/cliente/rastreamentos' },
   { icon: <BookOpen size={16} />, label: 'Conteúdo Exclusivo', to: '/cliente/conteudo' },
   { icon: <Heart size={16} />, label: 'Minhas Avaliações', to: '/cliente/avaliacoes' },
+  { icon: <Calendar size={16} />, label: 'Reservas', to: '/cliente/reservas' },
   { icon: <MapPin size={16} />, label: 'Endereços', to: '/cliente/enderecos' },
   { icon: <CreditCard size={16} />, label: 'Pagamentos', to: '/cliente/pagamentos' },
 ];
