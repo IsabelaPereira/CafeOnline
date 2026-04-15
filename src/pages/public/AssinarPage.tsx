@@ -473,6 +473,45 @@ export function AssinarPage() {
     if (!planoId && planos.length > 0) setPlanoId(planos[0].id);
   }, [planos, planoId]);
 
+  // ── Agenda check server-side de carrinho abandonado ao entrar em pagamento
+  // O timer de 10 minutos começa quando o cliente chega à etapa, independente
+  // de clicar ou não no botão para ir ao Stripe. O processamento é feito pela
+  // Edge Function `process-abandonment-checks` via pg_cron (lado do servidor).
+  const abandonmentScheduledRef = useRef(false);
+  useEffect(() => {
+    if (step !== 'pagamento') { abandonmentScheduledRef.current = false; return; }
+    if (abandonmentScheduledRef.current) return;
+    if (!leadId) {
+      console.warn('[abandonment-check] leadId ausente ao entrar em pagamento — check não agendada');
+      return;
+    }
+    abandonmentScheduledRef.current = true;
+    const scheduledAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    supabase.from('lead_abandonment_checks').insert({
+      lead_id:       leadId,
+      assinatura_id: assinaturaId,
+      scheduled_at:  scheduledAt,
+    }).then(r => {
+      if (r.error) {
+        console.warn('[abandonment-check] insert falhou:', r.error.message, r.error);
+        abandonmentScheduledRef.current = false;
+      } else {
+        console.info('[abandonment-check] agendada para', scheduledAt, 'lead=', leadId, 'ass=', assinaturaId);
+      }
+    });
+  }, [step, leadId, assinaturaId]);
+
+  // ── Auto-avanço da etapa ENDEREÇO ao clicar em uma opção de frete ─────────
+  const freteClickPendingRef = useRef(false);
+  useEffect(() => {
+    if (step !== 'endereco') { freteClickPendingRef.current = false; return; }
+    if (!freteClickPendingRef.current) return;
+    if (!freteId) return;
+    freteClickPendingRef.current = false;
+    handleEndereco();
+
+  }, [step, freteId]);
+
   // ── Auto-avanço da etapa DADOS quando todos os campos estiverem válidos ──
   const dadosAutoAdvancedRef = useRef(false);
   useEffect(() => {
@@ -560,57 +599,15 @@ export function AssinarPage() {
   }, [user]);
 
   // ── Handle Stripe cancel return ────────────────────────────────────────────
+  // O controle de "carrinho abandonado" acontece server-side via pg_cron +
+  // Edge Function `process-abandonment-checks` (agendada ao iniciar o pagamento).
+  // Aqui só mostramos a mensagem e voltamos à etapa de pagamento.
   useEffect(() => {
     if (!cancelado) return;
-    const storedLead = sessionStorage.getItem('dsmatas_lead_id');
-    const storedAssinatura = sessionStorage.getItem('dsmatas_assinatura_id');
-
     setAlerta('Seu pagamento não foi concluído. Você pode tentar novamente quando quiser.');
     setStep('pagamento');
-
-    if (!storedLead) return;
-
-    // Após 15 min, verifica status da assinatura e atualiza o lead:
-    //  - Concluída (ativa)  → etapa carrinho-abandonado + tag CARRINHO-ABANDONADA
-    //  - Não concluída      → etapa carrinho-abandonado + tag carrinho-abandonado
-    // Em ambos os casos, próximo follow-up 20 min depois.
-    const ABANDON_MS = 15 * 60 * 1000;
-    const timer = window.setTimeout(async () => {
-      let foiConcluida = false;
-      try {
-        if (storedAssinatura) {
-          const { data } = await supabase
-            .from('assinaturas')
-            .select('status')
-            .eq('id', storedAssinatura)
-            .maybeSingle();
-          foiConcluida = (data as { status?: string } | null)?.status === 'ativa';
-        }
-      } catch { /* ignore — assume não concluída */ }
-
-      const proximoFollowUp = new Date(Date.now() + 20 * 60 * 1000).toISOString();
-
-      if (foiConcluida) {
-        updateLeadCheckout(storedLead, {
-          etapa:           'carrinho-abandonado',
-          tags:            ['CARRINHO-ABANDONADA'],
-          observacoes:     'Cliente efetivou o pagamento da assinatura pelo site',
-          proximoFollowUp,
-        }).catch(() => {});
-      } else {
-        updateLeadCheckout(storedLead, {
-          etapa:           'carrinho-abandonado',
-          tags:            ['carrinho-abandonado'],
-          observacoes:     'Retornou do Stripe e não concluiu o pagamento em 15 min',
-          proximoFollowUp,
-        }).catch(() => {});
-      }
-
-      sessionStorage.removeItem('dsmatas_lead_id');
-      sessionStorage.removeItem('dsmatas_assinatura_id');
-    }, ABANDON_MS);
-
-    return () => window.clearTimeout(timer);
+    sessionStorage.removeItem('dsmatas_lead_id');
+    sessionStorage.removeItem('dsmatas_assinatura_id');
   }, [cancelado]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1228,6 +1225,12 @@ export function AssinarPage() {
                 required
                 value={email}
                 onChange={e => { setEmail(e.target.value); setEmailExists(false); setSenha(''); setErrors({}); }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !emailExists && !emailChecking && !loading) {
+                    e.preventDefault();
+                    handleVerificarEmail();
+                  }
+                }}
                 error={errors.email}
                 placeholder="seu@email.com"
                 disabled={emailChecking || loading}
@@ -1530,8 +1533,8 @@ export function AssinarPage() {
                       <input type="radio" name="frete" value={op.id}
                         checked={freteId === op.id}
                         onChange={() => {
+                          freteClickPendingRef.current = true;
                           setFreteId(op.id);
-                          setTimeout(() => handleEndereco(), 150);
                         }}
                         className="accent-forest-500"
                       />

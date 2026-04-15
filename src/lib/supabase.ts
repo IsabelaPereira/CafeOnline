@@ -45,4 +45,5 @@ export type Tables = {
   avaliacoes_box:         { id: string; cliente_id: string; edicao_id: string; nota_geral: number | null; comentario: string | null; created_at: string };
   avaliacoes_cafe:        { id: string; cliente_id: string; cafe_id: string; edicao_id: string; nota_geral: number | null; aroma: number | null; docura: number | null; acidez: number | null; corpo: number | null; finalizacao: number | null; comentario: string | null; created_at: string };
   configuracoes:          { id: number; empresa: Record<string, unknown>; cafeteria: Record<string, unknown>; cobranca: Record<string, unknown> };
+  lead_abandonment_checks:{ id: string; lead_id: string; assinatura_id: string | null; scheduled_at: string; processed_at: string | null; result: string | null; created_at: string };
 };

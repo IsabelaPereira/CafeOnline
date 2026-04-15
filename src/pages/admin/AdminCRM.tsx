@@ -31,6 +31,7 @@ const etapas: { id: LeadEtapa; label: string; color: string }[] = [
   { id: 'pagamento_iniciado',     label: 'Pagamento Iniciado',     color: 'bg-orange-100 text-orange-700 border-orange-200'  },
   { id: 'pagamento_invalido',     label: 'Pagamento Inválido',     color: 'bg-red-100 text-red-700 border-red-200'           },
   { id: 'pagamento_pendente',     label: 'Pagamento Pendente',     color: 'bg-yellow-100 text-yellow-700 border-yellow-200'  },
+  { id: 'carrinho-abandonado',    label: 'Carrinho Abandonado',    color: 'bg-rose-100 text-rose-700 border-rose-200'        },
   { id: 'assinatura_concluida',   label: 'Assinatura Concluída',   color: 'bg-forest-100 text-forest-700 border-forest-200'  },
   { id: 'interesse_reserva',      label: 'Interesse Reserva',      color: 'bg-purple-100 text-purple-700 border-purple-200'  },
   { id: 'cliente_ativo',          label: 'Cliente Ativo',          color: 'bg-forest-100 text-forest-700 border-forest-200'  },
@@ -167,6 +168,8 @@ export function AdminCRM() {
     () => new Set(COLUNAS_CLI.filter(c => c.padrao).map(c => c.id)),
   );
   const colunasRef  = useRef<HTMLDivElement>(null);
+  const kanbanRef   = useRef<HTMLDivElement>(null);
+  const kanbanDrag  = useRef({ active: false, startX: 0, scrollLeft: 0 });
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [editandoCli, setEditandoCli]         = useState(false);
   const [formCli, setFormCli]                 = useState({
@@ -669,7 +672,23 @@ export function AdminCRM() {
           </div>
 
           {/* Colunas do funil */}
-          <div className="overflow-x-auto pb-4">
+          <div
+            ref={kanbanRef}
+            className="overflow-x-auto pb-4 cursor-grab active:cursor-grabbing select-none"
+            onMouseDown={e => {
+              if ((e.target as HTMLElement).closest('[draggable="true"]')) return;
+              const el = kanbanRef.current!;
+              kanbanDrag.current = { active: true, startX: e.pageX - el.offsetLeft, scrollLeft: el.scrollLeft };
+            }}
+            onMouseMove={e => {
+              if (!kanbanDrag.current.active) return;
+              e.preventDefault();
+              const el = kanbanRef.current!;
+              el.scrollLeft = kanbanDrag.current.scrollLeft - (e.pageX - el.offsetLeft - kanbanDrag.current.startX);
+            }}
+            onMouseUp={() => { kanbanDrag.current.active = false; }}
+            onMouseLeave={() => { kanbanDrag.current.active = false; }}
+          >
             <div className="flex gap-4 min-w-max">
               {etapasFunilAtivas.map(etapa => {
                 const etapaLeads   = leadsPorEtapa(etapa.id);
