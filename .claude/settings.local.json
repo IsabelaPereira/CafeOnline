@@ -8,7 +8,13 @@
       "Bash(npx vite *)",
       "Bash(echo \"exit=$?\")",
       "Bash(echo \"---exit=$?\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(grep -n \"\\\\.insert\\\\|\\\\.update\\\\|\\\\.delete\\\\|\\\\.upsert\" src/pages/admin/*.tsx)",
+      "Bash(grep -n \"\\\\.insert\\\\|\\\\.update\\\\|\\\\.delete\\\\|\\\\.upsert\" src/services/*.ts)",
+      "Bash(grep -v \".tsx$\")",
+      "Bash(ls -la src/pages/admin/*.tsx)",
+      "Bash(awk '{print $NF}')",
+      "Bash(grep -n \"supabase.from\" src/services/*.ts)"
     ]
   }
 }

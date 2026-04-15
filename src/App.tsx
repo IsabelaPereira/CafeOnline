@@ -46,6 +46,7 @@ import { AdminRelatorios } from './pages/admin/AdminRelatorios';
 import { AdminConfiguracoes } from './pages/admin/AdminConfiguracoes';
 import { AdminLogistica } from './pages/admin/AdminLogistica';
 import { AdminEdicoes } from './pages/admin/AdminEdicoes';
+import { AdminLogs } from './pages/admin/AdminLogs';
 
 // ---- Protected Routes ----
 function ProtectedClientRoute({ children }: { children: React.ReactNode }) {
@@ -471,6 +472,11 @@ function AppRoutes() {
       <Route path="/admin/configuracoes" element={
         <ProtectedAdminRoute>
           <AdminLayout><AdminConfiguracoes /></AdminLayout>
+        </ProtectedAdminRoute>
+      } />
+      <Route path="/admin/logs" element={
+        <ProtectedAdminRoute>
+          <AdminLayout><AdminLogs /></AdminLayout>
         </ProtectedAdminRoute>
       } />
 

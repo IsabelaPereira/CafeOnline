@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Package, ShoppingBag, Users, Calendar, BookOpen,
   CreditCard, BarChart3, Settings, LogOut, Menu, Bell,
-  ChevronDown, Truck, Star, Search, ArrowUpRight
+  ChevronDown, Truck, Star, Search, ArrowUpRight, ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -62,6 +62,7 @@ const navItems: NavItem[] = [
   },
   { icon: <Truck size={16} />, label: 'Logística', to: '/admin/logistica' },
   { icon: <BarChart3 size={16} />, label: 'Relatórios', to: '/admin/relatorios' },
+  { icon: <ClipboardList size={16} />, label: 'Logs de Auditoria', to: '/admin/logs' },
   { icon: <Settings size={16} />, label: 'Configurações', to: '/admin/configuracoes' },
 ];
 
