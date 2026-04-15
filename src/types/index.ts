@@ -49,6 +49,11 @@ export interface Endereco {
 export type LeadEtapa =
   | 'novo'
   | 'interesse_assinatura'
+  | 'checkout_plano'
+  | 'checkout_contato'
+  | 'checkout_preferencias'
+  | 'checkout_endereco'
+  | 'checkout_pagamento'
   | 'checkout_iniciado'
   | 'pagamento_iniciado'
   | 'pagamento_invalido'
@@ -96,6 +101,14 @@ export interface HistoricoEtapaLead {
   etapaNova: string;
   alteradoPor?: string;
   alteradoEm: string;
+  // snapshot do lead no momento da alteração
+  observacoes?: string;
+  origem?: string;
+  interesse?: string;
+  planoDesejado?: string;
+  tags?: string[];
+  ultimoContato?: string;
+  proximoFollowUp?: string;
 }
 
 // ---- PLANOS ----

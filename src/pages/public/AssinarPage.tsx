@@ -9,7 +9,7 @@ import { usePlanos } from '../../hooks/useAssinaturas';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { createCheckoutSession } from '../../services/stripe.service';
-import { upsertLeadByEmail, updateLeadEtapa } from '../../services/leads.service';
+import { upsertLeadByEmail, updateLeadCheckout } from '../../services/leads.service';
 import { calcularFrete, buscarEnderecoCep, RETIRADA_OPCAO } from '../../services/frete.service';
 import { getClienteByUserId, updateClienteStripeCustomerId } from '../../services/clientes.service';
 import type { Endereco } from '../../types';
@@ -182,7 +182,14 @@ export function AssinarPage() {
     if (!cancelado) return;
     const storedLead = sessionStorage.getItem('dsmatas_lead_id');
     if (storedLead) {
-      updateLeadEtapa(storedLead, 'pagamento_pendente').catch(() => {});
+      const amanha = new Date();
+      amanha.setDate(amanha.getDate() + 1);
+      updateLeadCheckout(storedLead, {
+        etapa:           'checkout_pagamento',
+        tags:            ['carrinho-abandonado', 'potencial-assinante'],
+        observacoes:     'Retornou do Stripe sem concluir o pagamento.',
+        proximoFollowUp: amanha.toISOString().split('T')[0],
+      }).catch(() => {});
       sessionStorage.removeItem('dsmatas_lead_id');
       sessionStorage.removeItem('dsmatas_assinatura_id');
     }
@@ -198,16 +205,19 @@ export function AssinarPage() {
 
   async function salvarLead(
     etapa: Parameters<typeof upsertLeadByEmail>[0]['etapa'],
-    extra?: { nome?: string; telefone?: string },
+    extra?: { nome?: string; telefone?: string; tags?: string[]; observacoes?: string; proximoFollowUp?: string },
   ) {
     try {
       const id = await upsertLeadByEmail({
         email, etapa,
-        nome:          extra?.nome,
-        telefone:      extra?.telefone,
-        origem:        'checkout',
-        interesse:     'Clube de assinatura',
-        planoDesejado: planoId || undefined,
+        nome:            extra?.nome,
+        telefone:        extra?.telefone,
+        tags:            extra?.tags,
+        observacoes:     extra?.observacoes,
+        proximoFollowUp: extra?.proximoFollowUp,
+        origem:          'checkout',
+        interesse:       'Clube de assinatura',
+        planoDesejado:   planoId || undefined,
       });
       setLeadId(id);
       return id;
@@ -284,6 +294,7 @@ export function AssinarPage() {
     if (jaExiste) {
       setEmailExists(true);
       setIsNewUser(false);
+      // Lead será criado/atualizado em handleLogin (após autenticação)
       return;
     }
     if (signUpErr) {
@@ -302,7 +313,10 @@ export function AssinarPage() {
     setDados({ nome: '', celular: '', cpf: '', senhaNovo: '', confirmarSenha: '' });
     setPreferencias({ tipo: 'grao', moagem: 'medio' });
     setIsNewUser(true);
-    await salvarLead('checkout_iniciado');
+    await salvarLead('checkout_plano', {
+      tags:        ['clicou-na-assinatura', 'potencial-assinante'],
+      observacoes: 'Iniciou checkout como novo usuário.',
+    });
     setErrors({});
     setStep('dados');
   };
@@ -324,7 +338,10 @@ export function AssinarPage() {
     }
 
     setUserId(data.user.id);
-    await salvarLead('checkout_iniciado');
+    await salvarLead('checkout_plano', {
+      tags:        ['clicou-na-assinatura', 'potencial-assinante'],
+      observacoes: 'Iniciou checkout com conta existente.',
+    });
 
     // Busca nome real da tabela profiles (user_metadata pode conter username auto-gerado)
     const { data: profileRow } = await supabase.from('profiles').select('name').eq('id', data.user.id).single();
@@ -402,9 +419,15 @@ export function AssinarPage() {
       }
 
       // Atualiza o lead com nome, telefone e cliente_id
+      const tagsDados = isNewUser
+        ? ['inseriu-dados', 'potencial-assinante', 'criou-login']
+        : ['inseriu-dados', 'potencial-assinante'];
       const leadIdAtual = await upsertLeadByEmail({
-        email, etapa: 'checkout_iniciado',
-        nome: dados.nome.trim(), telefone: dados.celular.replace(/\D/g, ''),
+        email, etapa: 'checkout_contato',
+        nome:        dados.nome.trim(),
+        telefone:    dados.celular.replace(/\D/g, ''),
+        tags:        tagsDados,
+        observacoes: 'Preencheu dados de contato no checkout.',
       }).catch(() => null);
       if (leadIdAtual && theClienteId) {
         void supabase.from('leads').update({ cliente_id: theClienteId }).eq('id', leadIdAtual);
@@ -421,7 +444,7 @@ export function AssinarPage() {
   };
 
   // PREFERENCIAS → ENDERECO
-  const handlePreferencias = () => {
+  const handlePreferencias = async () => {
     setErrors({});
     // Inicializa seleção de endereço se ainda não definida
     if (enderecoSelecionadoId === null) {
@@ -431,6 +454,13 @@ export function AssinarPage() {
       } else {
         setEnderecoSelecionadoId('novo');
       }
+    }
+    if (leadId) {
+      updateLeadCheckout(leadId, {
+        etapa:       'checkout_preferencias',
+        tags:        ['selecionou-preferencia', 'potencial-assinante'],
+        observacoes: 'Selecionou preferências de café.',
+      }).catch(() => {});
     }
     setStep('endereco');
   };
@@ -487,6 +517,13 @@ export function AssinarPage() {
     if (!freteId) errs.frete = 'Selecione uma opção de entrega para continuar.';
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setErrors({});
+    if (leadId) {
+      updateLeadCheckout(leadId, {
+        etapa:       'checkout_endereco',
+        tags:        ['informou-endereco', 'potencial-assinante'],
+        observacoes: 'Informou endereço de entrega.',
+      }).catch(() => {});
+    }
     setStep('pagamento');
   };
 
@@ -500,7 +537,10 @@ export function AssinarPage() {
     try {
       const totalMensal = (planoObj?.preco ?? 0) + freteSelecionado.preco;
       let assId = assinaturaId;
-      const lId = leadId ?? await salvarLead('pagamento_iniciado');
+      const lId = leadId ?? await salvarLead('checkout_pagamento', {
+        tags:        ['iniciou-pagamento', 'potencial-assinante'],
+        observacoes: 'Iniciou pagamento no Stripe.',
+      });
 
       if (!assId) {
         // 1. Resolver endereço (retirada = sem endereço de entrega)
@@ -550,7 +590,13 @@ export function AssinarPage() {
       }
 
       // 3. Atualizar lead
-      if (lId) await updateLeadEtapa(lId as string, 'pagamento_iniciado').catch(() => {});
+      if (lId) {
+        await updateLeadCheckout(lId as string, {
+          etapa:       'checkout_pagamento',
+          tags:        ['iniciou-pagamento', 'potencial-assinante'],
+          observacoes: 'Iniciou pagamento no Stripe.',
+        }).catch(() => {});
+      }
 
       // 4. Salvar para retorno do Stripe
       sessionStorage.setItem('dsmatas_lead_id',       lId ?? '');
@@ -581,7 +627,7 @@ export function AssinarPage() {
       window.location.href = stripeUrl;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro inesperado. Tente novamente.';
-      if (leadId) updateLeadEtapa(leadId, 'pagamento_invalido').catch(() => {});
+      if (leadId) updateLeadCheckout(leadId, { etapa: 'pagamento_invalido' }).catch(() => {});
       setAlerta(
         msg.includes('Failed to send') || msg.includes('Edge Function') || msg.includes('fetch')
           ? 'O sistema de pagamento está temporariamente indisponível. Verifique se a função create-checkout está deployada no Supabase e os secrets STRIPE_SECRET_KEY e SITE_URL estão configurados.'
@@ -862,8 +908,8 @@ export function AssinarPage() {
                 </div>
               )}
 
-              {/* Formulário de novo endereço — oculto na retirada */}
-              {freteId !== 'retirada' && (enderecoSelecionadoId === 'novo' || enderecosSalvos.length === 0) && (
+              {/* Formulário de novo endereço */}
+              {(enderecoSelecionadoId === 'novo' || enderecosSalvos.length === 0) && (
                 <div className="space-y-4 pt-2">
                   <div className="grid grid-cols-2 gap-5">
                     <div className="relative">

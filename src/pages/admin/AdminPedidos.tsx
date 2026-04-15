@@ -4,7 +4,7 @@ import {
   Card, Badge, SearchBar, FilterBar, Select, Pagination,
   Modal, Button, SectionHeader, Input,
 } from '../../components/ui';
-import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, buscarClientePorEmail, gerarEtiqueta, cancelarEtiqueta } from '../../services/pedidos.service';
+import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, buscarClientePorEmail, gerarEtiqueta, cancelarEtiqueta, limparEtiquetaLocal } from '../../services/pedidos.service';
 import { getAssinatura } from '../../services/assinaturas.service';
 import type { Pedido, Endereco, Assinatura } from '../../types';
 
@@ -41,6 +41,7 @@ export function AdminPedidos() {
   const [salvandoRastreio, setSalvandoRastreio] = useState(false);
   const [gerandoEtiqueta, setGerandoEtiqueta] = useState(false);
   const [cancelandoEtiqueta, setCancelandoEtiqueta] = useState(false);
+  const [limpandoEtiqueta, setLimpandoEtiqueta] = useState(false);
   const [erroEtiqueta, setErroEtiqueta] = useState('');
   const perPage = 10;
 
@@ -161,6 +162,23 @@ export function AdminPedidos() {
     }
   }
 
+  async function handleLimparEtiquetaLocal() {
+    if (!selected) return;
+    if (!confirm('Remover a etiqueta SOMENTE do sistema (banco de dados)?\n\nUse esta opção APENAS se você já cancelou manualmente no painel MelhorEnvio. O pedido voltará ao status "pago".')) return;
+    setLimpandoEtiqueta(true);
+    setErroEtiqueta('');
+    try {
+      await limparEtiquetaLocal(selected.id);
+      const atualizados = await getPedidos();
+      setPedidos(atualizados);
+      setSelected(atualizados.find(p => p.id === selected.id) ?? null);
+    } catch (e) {
+      setErroEtiqueta(`Erro ao limpar etiqueta: ${e instanceof Error ? e.message : 'Tente novamente.'}`);
+    } finally {
+      setLimpandoEtiqueta(false);
+    }
+  }
+
   async function handleGerarEtiqueta() {
     if (!selected) return;
     setGerandoEtiqueta(true);
@@ -190,16 +208,18 @@ export function AdminPedidos() {
     setErroEtiqueta('');
     try {
       const result = await cancelarEtiqueta(selected.id);
-      if (result.error) {
-        setErroEtiqueta(result.error);
+      // Captura qualquer campo de erro que a função ou o Supabase possam retornar
+      const msgErro = result.error ?? (result as any).message ?? (result as any).msg ?? null;
+      if (msgErro && !result.success) {
+        setErroEtiqueta(String(msgErro));
         return;
       }
       const atualizados = await getPedidos();
       setPedidos(atualizados);
       const updatedSelected = atualizados.find(p => p.id === selected.id) ?? null;
       setSelected(updatedSelected);
-    } catch {
-      setErroEtiqueta('Erro ao cancelar a etiqueta. Tente novamente.');
+    } catch (e) {
+      setErroEtiqueta(`Erro ao cancelar a etiqueta: ${e instanceof Error ? e.message : 'Tente novamente.'}`);
     } finally {
       setCancelandoEtiqueta(false);
     }
@@ -628,9 +648,25 @@ export function AdminPedidos() {
                       </a>
                     </div>
                     {erroEtiqueta && (
-                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-sm text-sm text-red-700">
-                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                        {erroEtiqueta}
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-sm text-sm text-red-700">
+                          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                          <span className="flex-1">{erroEtiqueta}</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-sm">
+                          <AlertCircle size={13} className="text-amber-600 shrink-0" />
+                          <p className="text-xs text-amber-700 flex-1">
+                            Cancele manualmente no <strong>painel MelhorEnvio</strong> e depois use o botão abaixo para atualizar o sistema.
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            loading={limpandoEtiqueta}
+                            onClick={handleLimparEtiquetaLocal}
+                          >
+                            Limpar no sistema
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>

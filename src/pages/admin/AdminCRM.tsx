@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Plus, MessageCircle, Mail, Phone, Tag, Users, ArrowRight,
   Eye, Pencil, SlidersHorizontal, Columns2, X, ChevronDown,
@@ -6,7 +6,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import {
-  Card, Badge, Button, Modal, Input, Select, Textarea, SectionHeader,
+  Card, Button, Modal, Input, Select, Textarea, SectionHeader,
   SearchBar, Tabs, Pagination,
 } from '../../components/ui';
 import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem } from '../../services/leads.service';
@@ -19,16 +19,31 @@ import type { Lead, LeadEtapa, Cliente, Pedido, Assinatura, Reserva, HistoricoEt
 // ── Etapas do funil ───────────────────────────────────────────────────────────
 
 const etapas: { id: LeadEtapa; label: string; color: string }[] = [
-  { id: 'novo',                  label: 'Novo Lead',            color: 'bg-blue-100 text-blue-700 border-blue-200'       },
-  { id: 'interesse_assinatura',  label: 'Interesse Assinatura', color: 'bg-gold-100 text-gold-700 border-gold-200'       },
-  { id: 'checkout_iniciado',     label: 'Checkout Iniciado',    color: 'bg-orange-100 text-orange-700 border-orange-200' },
-  { id: 'assinatura_concluida',  label: 'Assinatura Concluída', color: 'bg-forest-100 text-forest-700 border-forest-200' },
-  { id: 'interesse_reserva',     label: 'Interesse Reserva',    color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  { id: 'cliente_ativo',         label: 'Cliente Ativo',        color: 'bg-forest-100 text-forest-700 border-forest-200' },
-  { id: 'inadimplente',          label: 'Inadimplente',         color: 'bg-red-100 text-red-700 border-red-200'          },
-  { id: 'recuperacao',           label: 'Recuperação',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-  { id: 'perdido',               label: 'Perdido',              color: 'bg-charcoal-100 text-charcoal-600 border-charcoal-200' },
+  { id: 'novo',                   label: 'Novo Lead',              color: 'bg-blue-100 text-blue-700 border-blue-200'        },
+  { id: 'interesse_assinatura',   label: 'Interesse Assinatura',   color: 'bg-gold-100 text-gold-700 border-gold-200'        },
+  { id: 'checkout_plano',         label: 'Checkout: Plano',        color: 'bg-amber-100 text-amber-700 border-amber-200'     },
+  { id: 'checkout_contato',       label: 'Checkout: Contato',      color: 'bg-amber-100 text-amber-700 border-amber-200'     },
+  { id: 'checkout_preferencias',  label: 'Checkout: Preferências', color: 'bg-amber-100 text-amber-700 border-amber-200'     },
+  { id: 'checkout_endereco',      label: 'Checkout: Endereço',     color: 'bg-amber-100 text-amber-700 border-amber-200'     },
+  { id: 'checkout_pagamento',     label: 'Checkout: Pagamento',    color: 'bg-orange-100 text-orange-700 border-orange-200'  },
+  { id: 'checkout_iniciado',      label: 'Checkout Iniciado',      color: 'bg-orange-100 text-orange-700 border-orange-200'  },
+  { id: 'pagamento_iniciado',     label: 'Pagamento Iniciado',     color: 'bg-orange-100 text-orange-700 border-orange-200'  },
+  { id: 'pagamento_invalido',     label: 'Pagamento Inválido',     color: 'bg-red-100 text-red-700 border-red-200'           },
+  { id: 'pagamento_pendente',     label: 'Pagamento Pendente',     color: 'bg-yellow-100 text-yellow-700 border-yellow-200'  },
+  { id: 'assinatura_concluida',   label: 'Assinatura Concluída',   color: 'bg-forest-100 text-forest-700 border-forest-200'  },
+  { id: 'interesse_reserva',      label: 'Interesse Reserva',      color: 'bg-purple-100 text-purple-700 border-purple-200'  },
+  { id: 'cliente_ativo',          label: 'Cliente Ativo',          color: 'bg-forest-100 text-forest-700 border-forest-200'  },
+  { id: 'inadimplente',           label: 'Inadimplente',           color: 'bg-red-100 text-red-700 border-red-200'           },
+  { id: 'recuperacao',            label: 'Recuperação',            color: 'bg-yellow-100 text-yellow-700 border-yellow-200'  },
+  { id: 'perdido',                label: 'Perdido',                color: 'bg-charcoal-100 text-charcoal-600 border-charcoal-200' },
 ];
+
+// Etapas exibidas como colunas no Funil Visual
+const ETAPAS_EXCLUIDAS_FUNIL = new Set<LeadEtapa>([
+  'novo', 'interesse_assinatura', 'checkout_iniciado', 'pagamento_iniciado',
+  'pagamento_invalido', 'pagamento_pendente', 'cliente_ativo', 'recuperacao',
+]);
+const etapasFunil = etapas.filter(e => !ETAPAS_EXCLUIDAS_FUNIL.has(e.id));
 
 function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const etapa = etapas.find(e => e.id === lead.etapa);
@@ -203,17 +218,23 @@ export function AdminCRM() {
     if (!selectedCliente) return;
     setCliDetalheTab('dados');
     setCliHist({ pedidos: [], assinaturas: [], reservas: [], loading: true });
-    // Limpa cache de histórico ao trocar de cliente
     setLeadHistorico({});
     setLeadHistLoading({});
-    Promise.all([
+
+    Promise.allSettled([
       getPedidos(selectedCliente.id),
       getAssinaturasCliente(selectedCliente.id),
       getReservasCliente(selectedCliente.id),
-    ]).then(([pedidos, assinaturas, reservas]) => {
-      setCliHist({ pedidos, assinaturas, reservas, loading: false });
-    }).catch(() => {
-      setCliHist(prev => ({ ...prev, loading: false }));
+    ]).then(([rPedidos, rAss, rRes]) => {
+      if (rPedidos.status  === 'rejected') console.error('[CRM] getPedidos error:', rPedidos.reason);
+      if (rAss.status      === 'rejected') console.error('[CRM] getAssinaturasCliente error:', rAss.reason);
+      if (rRes.status      === 'rejected') console.error('[CRM] getReservasCliente error:', rRes.reason);
+      setCliHist({
+        pedidos:     rPedidos.status === 'fulfilled' ? rPedidos.value : [],
+        assinaturas: rAss.status     === 'fulfilled' ? rAss.value     : [],
+        reservas:    rRes.status     === 'fulfilled' ? rRes.value     : [],
+        loading: false,
+      });
     });
   }, [selectedCliente?.id]);
 
@@ -235,11 +256,23 @@ export function AdminCRM() {
     ? leads.filter(l => l.clienteId === selectedCliente.id || l.email === selectedCliente.email)
     : [];
 
-  // Carrega histórico de etapas quando aba funil é aberta
+  // Carrega histórico de etapas quando aba funil é aberta (modal de cliente)
   useEffect(() => {
     if (cliDetalheTab !== 'funil' || clienteLeadsAtual.length === 0) return;
     clienteLeadsAtual.forEach(l => carregarHistoricoLead(l.id));
   }, [cliDetalheTab, selectedCliente?.id]);
+
+  // Carrega histórico de etapas quando modal de lead é aberto
+  useEffect(() => {
+    if (!selectedLead) return;
+    // Força recarregamento sempre que abre o modal
+    setLeadHistorico(prev => {
+      const next = { ...prev };
+      delete next[selectedLead.id];
+      return next;
+    });
+    carregarHistoricoLead(selectedLead.id);
+  }, [selectedLead?.id]);
 
   // ── Filtros clientes ───────────────────────────────────────────────────────
   const filteredCli = clientes.filter(c => {
@@ -291,7 +324,7 @@ export function AdminCRM() {
         ...selectedCliente,
         name: formCli.name, phone: formCli.phone, cpf: formCli.cpf || undefined,
         birthdate: formCli.birthdate || undefined, preferenciaCafe: formCli.preferenciaCafe,
-        tipoMoagem: formCli.preferenciaCafe === 'moido' ? formCli.tipoMoagem || undefined : undefined,
+        tipoMoagem: formCli.preferenciaCafe === 'moido' ? (formCli.tipoMoagem || undefined) as 'fino' | 'medio' | 'grosso' | 'extraGrosso' | undefined : undefined,
       };
       setClientes(prev => prev.map(c => c.id === updated.id ? updated : c));
       setSelectedCliente(updated);
@@ -332,7 +365,7 @@ export function AdminCRM() {
       {tab === 'funil' && (
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-4 min-w-max">
-            {etapas.slice(0, 6).map(etapa => {
+            {etapasFunil.map(etapa => {
               const etapaLeads = leadsPorEtapa(etapa.id);
               return (
                 <div key={etapa.id} className="w-64 shrink-0">
@@ -567,67 +600,234 @@ export function AdminCRM() {
       )}
 
       {/* ── Modal detalhe lead ─────────────────────────────────────────────── */}
-      <Modal open={!!selectedLead} onClose={() => setSelectedLead(null)} title={selectedLead?.nome ?? ''} size="lg">
-        {selectedLead && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { label: 'E-mail',        value: selectedLead.email },
-                { label: 'Telefone',      value: selectedLead.telefone },
-                { label: 'Origem',        value: selectedLead.origem },
-                { label: 'Plano desejado', value: selectedLead.planoDesejado || '—' },
-              ].map(info => (
-                <div key={info.label} className="bg-cream-50 rounded-sm p-3">
-                  <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>
-                  <p className="text-sm font-medium text-charcoal-700">{info.value}</p>
-                </div>
-              ))}
-            </div>
-            <div>
-              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Etapa do funil</p>
-              <Select value={selectedLead.etapa} onChange={() => {}} options={etapas.map(e => ({ value: e.id, label: e.label }))} />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Tags</p>
-              <div className="flex flex-wrap gap-2">
-                {selectedLead.tags.map(tag => (
-                  <span key={tag} className="flex items-center gap-1.5 px-3 py-1 bg-cream-100 border border-cream-200 text-sm text-charcoal-600 rounded-full"><Tag size={12} />{tag}</span>
+      <Modal open={!!selectedLead} onClose={() => setSelectedLead(null)} title={selectedLead?.nome ?? ''} size="xl">
+        {selectedLead && (() => {
+          const etapaAtual   = etapas.find(e => e.id === selectedLead.etapa);
+          const hist         = leadHistorico[selectedLead.id];
+          const histLoading  = leadHistLoading[selectedLead.id];
+          return (
+            <div className="space-y-5">
+
+              {/* ── Dados principais ──────────────────────────────────────── */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'E-mail',    value: selectedLead.email     },
+                  { label: 'Telefone',  value: selectedLead.telefone || '—' },
+                  { label: 'Origem',    value: selectedLead.origem    },
+                  { label: 'Interesse', value: selectedLead.interesse || '—' },
+                  { label: 'Plano desejado', value: selectedLead.planoDesejado || '—' },
+                  { label: 'Lead desde', value: new Date(selectedLead.createdAt).toLocaleDateString('pt-BR') },
+                  { label: 'Último contato',   value: selectedLead.ultimoContato ? new Date(selectedLead.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR') : '—' },
+                  { label: 'Próximo follow-up', value: selectedLead.proximoFollowUp ? new Date(selectedLead.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR') : '—' },
+                ].map(info => (
+                  <div key={info.label} className="bg-cream-50 rounded-sm p-3">
+                    <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>
+                    <p className="text-sm font-medium text-charcoal-700">{info.value}</p>
+                  </div>
                 ))}
               </div>
-            </div>
-            {selectedLead.observacoes && (
+
+              {/* ── Etapa atual ───────────────────────────────────────────── */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Etapa do funil</p>
+                  <Select value={selectedLead.etapa} onChange={() => {}} options={etapas.map(e => ({ value: e.id, label: e.label }))} />
+                </div>
+                {etapaAtual && (
+                  <span className={`mt-6 px-3 py-1.5 text-xs rounded border font-medium ${etapaAtual.color}`}>
+                    {etapaAtual.label}
+                  </span>
+                )}
+              </div>
+
+              {/* ── Tags ──────────────────────────────────────────────────── */}
+              <div>
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Tags</p>
+                {selectedLead.tags.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedLead.tags.map(tag => (
+                      <span key={tag} className="flex items-center gap-1.5 px-3 py-1 bg-cream-100 border border-cream-200 text-sm text-charcoal-600 rounded-full">
+                        <Tag size={12} />{tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-charcoal-400">Nenhuma tag.</p>
+                )}
+              </div>
+
+              {/* ── Observações ───────────────────────────────────────────── */}
               <div>
                 <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Observações</p>
-                <p className="text-sm text-charcoal-600 bg-cream-50 rounded-sm p-3">{selectedLead.observacoes}</p>
+                <p className="text-sm text-charcoal-600 bg-cream-50 rounded-sm p-3 min-h-[2.5rem]">
+                  {selectedLead.observacoes || <span className="italic text-charcoal-300">Sem observações.</span>}
+                </p>
               </div>
-            )}
-            <div>
-              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Histórico de interações ({selectedLead.interacoes.length})</p>
-              {selectedLead.interacoes.length === 0 ? (
-                <p className="text-sm text-charcoal-400">Nenhuma interação registrada.</p>
-              ) : (
-                <div className="space-y-3">
-                  {selectedLead.interacoes.map(inter => (
-                    <div key={inter.id} className="flex gap-3 p-3 bg-cream-50 rounded-sm">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${inter.tipo === 'email' ? 'bg-blue-100 text-blue-500' : inter.tipo === 'whatsapp' ? 'bg-green-100 text-green-500' : 'bg-charcoal-100 text-charcoal-500'}`}>
-                        {inter.tipo === 'email' ? <Mail size={14} /> : inter.tipo === 'whatsapp' ? <MessageCircle size={14} /> : <Phone size={14} />}
-                      </div>
-                      <div>
-                        <p className="text-sm text-charcoal-700">{inter.descricao}</p>
-                        <p className="text-xs text-charcoal-400 mt-1">{new Date(inter.data).toLocaleDateString('pt-BR')} · {inter.usuario}</p>
-                      </div>
+
+              {/* ── Histórico de etapas no funil ──────────────────────────── */}
+              <div className="border-t border-cream-200 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider">
+                    Histórico de etapas no funil
+                    {hist && hist.length > 0 && (
+                      <span className="ml-1.5 text-[10px] bg-cream-200 text-charcoal-500 rounded-full px-1.5 py-0.5">{hist.length}</span>
+                    )}
+                  </p>
+                  {hist && hist.length > 0 && (
+                    <button
+                      onClick={() => handleDeletarHistoricoTodo(selectedLead.id)}
+                      disabled={deletandoHistorico === selectedLead.id}
+                      className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded-sm transition-colors disabled:opacity-50"
+                    >
+                      {deletandoHistorico === selectedLead.id
+                        ? <Loader2 size={10} className="animate-spin" />
+                        : <X size={10} />}
+                      Apagar histórico
+                    </button>
+                  )}
+                </div>
+
+                {histLoading ? (
+                  <div className="flex items-center gap-2 py-3 text-xs text-charcoal-400">
+                    <Loader2 size={12} className="animate-spin" /> Carregando…
+                  </div>
+                ) : !hist || hist.length === 0 ? (
+                  <p className="text-xs text-charcoal-300 italic">Nenhuma alteração de etapa registrada.</p>
+                ) : (
+                  <div className="relative max-h-96 overflow-y-auto pr-1">
+                    <div className="absolute left-[13px] top-0 bottom-0 w-px bg-cream-300" />
+                    <div className="space-y-0">
+                      {hist.map((h, idx) => {
+                        const etAnterior = etapas.find(e => e.id === h.etapaAnterior);
+                        const etNova     = etapas.find(e => e.id === h.etapaNova);
+                        const isLast     = idx === hist.length - 1;
+                        return (
+                          <div key={h.id} className="flex gap-3 group">
+                            <div className={`relative z-10 w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1 border-2 ${isLast ? 'bg-forest-500 border-forest-500' : 'bg-white border-cream-300'}`}>
+                              <TrendingUp size={11} className={isLast ? 'text-white' : 'text-charcoal-400'} />
+                            </div>
+                            <div className="flex-1 pb-4">
+                              {/* Transição de etapa + botão excluir */}
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {h.etapaAnterior ? (
+                                    <>
+                                      <span className={`px-1.5 py-0.5 text-[10px] rounded border font-medium ${etAnterior?.color ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                        {etAnterior?.label ?? h.etapaAnterior}
+                                      </span>
+                                      <ArrowRight size={10} className="text-charcoal-400" />
+                                    </>
+                                  ) : (
+                                    <span className="text-[10px] text-charcoal-400 italic">Entrada no funil →</span>
+                                  )}
+                                  <span className={`px-1.5 py-0.5 text-[10px] rounded border font-medium ${etNova?.color ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                    {etNova?.label ?? h.etapaNova}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => handleDeletarHistoricoItem(selectedLead.id, h.id)}
+                                  disabled={deletandoHistorico === h.id}
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 text-red-300 hover:text-red-500 transition-all shrink-0"
+                                  title="Remover entrada"
+                                >
+                                  {deletandoHistorico === h.id
+                                    ? <Loader2 size={11} className="animate-spin" />
+                                    : <X size={11} />}
+                                </button>
+                              </div>
+                              {/* Data/hora/autor */}
+                              <p className="text-[10px] text-charcoal-400 mt-0.5 mb-2">
+                                {new Date(h.alteradoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                {' às '}
+                                {new Date(h.alteradoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                {h.alteradoPor ? ` · por ${h.alteradoPor}` : ''}
+                              </p>
+                              {/* Snapshot de campos */}
+                              <div className="bg-cream-50 rounded-sm border border-cream-200 p-2.5 space-y-1.5">
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                                  {h.origem && (
+                                    <p className="text-[10px] text-charcoal-500">
+                                      <span className="text-charcoal-400">Origem:</span> {h.origem}
+                                    </p>
+                                  )}
+                                  {h.interesse && (
+                                    <p className="text-[10px] text-charcoal-500">
+                                      <span className="text-charcoal-400">Interesse:</span> {h.interesse}
+                                    </p>
+                                  )}
+                                  {h.planoDesejado && (
+                                    <p className="text-[10px] text-charcoal-500">
+                                      <span className="text-charcoal-400">Plano:</span> {h.planoDesejado}
+                                    </p>
+                                  )}
+                                  {h.ultimoContato && (
+                                    <p className="text-[10px] text-charcoal-500">
+                                      <span className="text-charcoal-400">Último contato:</span>{' '}
+                                      {new Date(h.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR')}
+                                    </p>
+                                  )}
+                                  {h.proximoFollowUp && (
+                                    <p className="text-[10px] text-charcoal-500">
+                                      <span className="text-charcoal-400">Follow-up:</span>{' '}
+                                      {new Date(h.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR')}
+                                    </p>
+                                  )}
+                                </div>
+                                {h.tags && h.tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 pt-0.5">
+                                    {h.tags.map(tag => (
+                                      <span key={tag} className="px-1.5 py-0.5 bg-cream-200 text-charcoal-500 text-[10px] rounded">
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                {h.observacoes && (
+                                  <p className="text-[10px] text-charcoal-600 italic border-t border-cream-300 pt-1.5 mt-1">
+                                    {h.observacoes}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Histórico de interações ───────────────────────────────── */}
+              {selectedLead.interacoes.length > 0 && (
+                <div className="border-t border-cream-200 pt-4">
+                  <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">
+                    Interações ({selectedLead.interacoes.length})
+                  </p>
+                  <div className="space-y-3">
+                    {selectedLead.interacoes.map(inter => (
+                      <div key={inter.id} className="flex gap-3 p-3 bg-cream-50 rounded-sm">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${inter.tipo === 'email' ? 'bg-blue-100 text-blue-500' : inter.tipo === 'whatsapp' ? 'bg-green-100 text-green-500' : 'bg-charcoal-100 text-charcoal-500'}`}>
+                          {inter.tipo === 'email' ? <Mail size={14} /> : inter.tipo === 'whatsapp' ? <MessageCircle size={14} /> : <Phone size={14} />}
+                        </div>
+                        <div>
+                          <p className="text-sm text-charcoal-700">{inter.descricao}</p>
+                          <p className="text-xs text-charcoal-400 mt-1">{new Date(inter.data).toLocaleDateString('pt-BR')} · {inter.usuario}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+
+              {/* ── Ações ─────────────────────────────────────────────────── */}
+              <div className="flex gap-3 pt-2 border-t border-cream-200">
+                <Button variant="primary" size="sm"><MessageCircle size={14} />Enviar WhatsApp</Button>
+                <Button variant="secondary" size="sm"><Mail size={14} />Enviar e-mail</Button>
+                {!selectedLead.clienteId && <Button variant="ghost" size="sm"><ArrowRight size={14} />Converter em cliente</Button>}
+              </div>
             </div>
-            <div className="flex gap-3 pt-2 border-t border-cream-200">
-              <Button variant="primary" size="sm"><MessageCircle size={14} />Enviar WhatsApp</Button>
-              <Button variant="secondary" size="sm"><Mail size={14} />Enviar e-mail</Button>
-              {!selectedLead.clienteId && <Button variant="ghost" size="sm"><ArrowRight size={14} />Converter em cliente</Button>}
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </Modal>
 
       {/* ── Modal detalhe cliente ──────────────────────────────────────────── */}
@@ -922,20 +1122,17 @@ export function AdminCRM() {
                                 <p className="text-xs text-charcoal-300 italic">Nenhuma alteração registrada.</p>
                               ) : (
                                 <div className="relative">
-                                  {/* Linha vertical da timeline */}
                                   <div className="absolute left-[13px] top-0 bottom-0 w-px bg-cream-300" />
                                   <div className="space-y-0">
                                     {hist.map((h, idx) => {
                                       const etAnterior = etapas.find(e => e.id === h.etapaAnterior);
                                       const etNova     = etapas.find(e => e.id === h.etapaNova);
-                                      const isFirst    = idx === 0;
+                                      const isLast     = idx === hist.length - 1;
                                       return (
                                         <div key={h.id} className="flex gap-3 group">
-                                          {/* Bolinha */}
-                                          <div className={`relative z-10 w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1 border-2 ${isFirst ? 'bg-forest-500 border-forest-500' : 'bg-white border-cream-300'}`}>
-                                            <TrendingUp size={11} className={isFirst ? 'text-white' : 'text-charcoal-400'} />
+                                          <div className={`relative z-10 w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1 border-2 ${isLast ? 'bg-forest-500 border-forest-500' : 'bg-white border-cream-300'}`}>
+                                            <TrendingUp size={11} className={isLast ? 'text-white' : 'text-charcoal-400'} />
                                           </div>
-                                          {/* Conteúdo */}
                                           <div className="flex-1 pb-4">
                                             <div className="flex items-start justify-between gap-2">
                                               <div className="flex flex-wrap items-center gap-1.5">
@@ -964,12 +1161,30 @@ export function AdminCRM() {
                                                   : <X size={11} />}
                                               </button>
                                             </div>
-                                            <p className="text-[10px] text-charcoal-400 mt-0.5">
+                                            <p className="text-[10px] text-charcoal-400 mt-0.5 mb-2">
                                               {new Date(h.alteradoEm).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' })}
                                               {' às '}
                                               {new Date(h.alteradoEm).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
                                               {h.alteradoPor ? ` · por ${h.alteradoPor}` : ''}
                                             </p>
+                                            {/* Snapshot */}
+                                            <div className="bg-white rounded-sm border border-cream-200 p-2 space-y-1">
+                                              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                                                {h.origem && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Origem:</span> {h.origem}</p>}
+                                                {h.interesse && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Interesse:</span> {h.interesse}</p>}
+                                                {h.planoDesejado && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Plano:</span> {h.planoDesejado}</p>}
+                                                {h.ultimoContato && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Último contato:</span> {new Date(h.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+                                                {h.proximoFollowUp && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Follow-up:</span> {new Date(h.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+                                              </div>
+                                              {h.tags && h.tags.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 pt-0.5">
+                                                  {h.tags.map(tag => <span key={tag} className="px-1.5 py-0.5 bg-cream-100 text-charcoal-500 text-[10px] rounded">{tag}</span>)}
+                                                </div>
+                                              )}
+                                              {h.observacoes && (
+                                                <p className="text-[10px] text-charcoal-600 italic border-t border-cream-200 pt-1 mt-0.5">{h.observacoes}</p>
+                                              )}
+                                            </div>
                                           </div>
                                         </div>
                                       );

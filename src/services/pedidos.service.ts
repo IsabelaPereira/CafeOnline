@@ -141,7 +141,16 @@ export async function cancelarEtiqueta(
     },
     body: JSON.stringify({ pedido_id: pedidoId }),
   });
-  return res.json();
+
+  let body: Record<string, unknown> = {};
+  try { body = await res.json(); } catch { body = {}; }
+
+  // Se HTTP não-ok e a função não sinalizou success, força campo error
+  if (!res.ok && !body.success) {
+    const msg = (body.error ?? body.message ?? body.msg ?? `HTTP ${res.status}`) as string;
+    return { error: msg };
+  }
+  return body as { success?: boolean; message?: string; error?: string };
 }
 
 export async function gerarEtiqueta(
@@ -162,6 +171,18 @@ export async function gerarEtiqueta(
     body: JSON.stringify({ pedido_id: pedidoId }),
   });
   return res.json();
+}
+
+/** Remove etiqueta apenas no banco (sem chamar MelhorEnvio). Usar quando a edge function falha
+ *  e o admin já cancelou manualmente no painel MelhorEnvio. */
+export async function limparEtiquetaLocal(id: string): Promise<void> {
+  const { error } = await supabase.from('pedidos').update({
+    melhorenvio_cart_id: null,
+    etiqueta_url:        null,
+    codigo_rastreio:     null,
+    status:              'pago',
+  }).eq('id', id);
+  if (error) throw error;
 }
 
 export async function updatePedidoRastreio(id: string, codigoRastreio: string, status?: Pedido['status']): Promise<void> {
