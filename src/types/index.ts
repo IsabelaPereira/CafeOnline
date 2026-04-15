@@ -65,7 +65,7 @@ export type LeadEtapa =
   | 'recuperacao'
   | 'perdido';
 
-export type LeadOrigem = 'checkout' | 'reserva' | 'manual' | 'blog' | 'social' | 'indicacao' | 'landing';
+export type LeadOrigem = 'checkout' | 'reserva' | 'manual' | 'blog' | 'social' | 'indicacao' | 'landing' | 'landing-clube';
 
 export interface Lead {
   id: string;

@@ -88,16 +88,51 @@ export async function getLeadByEmail(email: string): Promise<Lead | null> {
   return mapLead(data);
 }
 
-export async function createLead(l: { nome: string; email: string; telefone?: string; origem?: Lead['origem']; interesse?: string; planoDesejado?: string }): Promise<Lead> {
-  const { data: existing } = await supabase.from('leads').select('id').eq('email', l.email).maybeSingle();
-  if (existing) return getLead(existing.id) as Promise<Lead>;
-
-  const { data, error } = await supabase.from('leads').insert({
-    nome: l.nome, email: l.email, telefone: l.telefone, origem: l.origem ?? 'landing',
-    interesse: l.interesse, plano_desejado: l.planoDesejado, etapa: 'novo',
-  }).select().single();
+export async function createLead(l: {
+  nome: string;
+  email: string;
+  telefone?: string;
+  origem?: Lead['origem'];
+  etapa?: Lead['etapa'];
+  interesse?: string;
+  planoDesejado?: string;
+  tags?: string[];
+  observacoes?: string;
+  ultimoContato?: string;
+  proximoFollowUp?: string;
+}): Promise<Lead> {
+  // Usa RPC SECURITY DEFINER para ignorar RLS na captura pública de leads.
+  const { data: leadId, error } = await supabase.rpc('subscribe_lead', {
+    p_nome:              l.nome,
+    p_email:             l.email,
+    p_telefone:          l.telefone ?? null,
+    p_origem:            l.origem ?? 'landing',
+    p_etapa:             l.etapa ?? 'novo',
+    p_interesse:         l.interesse ?? null,
+    p_plano_desejado:    l.planoDesejado ?? null,
+    p_tags:              l.tags ?? [],
+    p_observacoes:       l.observacoes ?? null,
+    p_ultimo_contato:    l.ultimoContato ?? null,
+    p_proximo_follow_up: l.proximoFollowUp ?? null,
+  });
   if (error) throw error;
-  return mapLead(data);
+
+  const lead = await getLead(leadId as string);
+  if (lead) return lead;
+
+  // Fallback: retorna objeto mínimo quando RLS de SELECT bloqueia leitura
+  return {
+    id: leadId as string,
+    nome: l.nome, email: l.email, telefone: l.telefone ?? '',
+    origem: (l.origem ?? 'landing') as Lead['origem'],
+    etapa:  (l.etapa  ?? 'novo')    as Lead['etapa'],
+    interesse: l.interesse, planoDesejado: l.planoDesejado,
+    tags: l.tags ?? [],
+    ultimoContato: l.ultimoContato, proximoFollowUp: l.proximoFollowUp,
+    observacoes: l.observacoes,
+    interacoes: [],
+    createdAt: new Date().toISOString(),
+  };
 }
 
 export async function updateLeadEtapa(id: string, etapa: Lead['etapa'], alteradoPor?: string): Promise<void> {

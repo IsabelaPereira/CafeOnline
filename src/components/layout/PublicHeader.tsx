@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, ShoppingCart, User, Coffee } from 'lucide-react';
+import { Menu, X, ShoppingCart, User } from 'lucide-react';
 import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -33,13 +33,16 @@ export function PublicHeader() {
       scrolled ? 'bg-white shadow-sm border-b border-cream-200' : 'bg-transparent'
     }`}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="flex items-center justify-between h-16 md:h-20">
+        <div className="flex items-center justify-between h-16 md:h-24">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-forest-500 rounded-sm flex items-center justify-center">
-              <Coffee size={18} className="text-cream-100" />
-            </div>
-            <span className="font-serif text-xl text-charcoal-700 tracking-wide">Das Matas</span>
+          <Link to="/" className="flex items-center h-full">
+            <img
+              src="/logo-das-matas.png"
+              alt="Das Matas"
+              className={`h-16 md:h-24 w-auto transition-[filter] duration-300 ${
+                scrolled ? '' : 'invert'
+              }`}
+            />
           </Link>
 
           {/* Desktop Nav */}
@@ -50,10 +53,10 @@ export function PublicHeader() {
                 to={link.to}
                 className={`text-sm font-medium tracking-wide transition-colors ${
                   location.pathname === link.to
-                    ? 'text-forest-500'
+                    ? scrolled ? 'text-forest-500' : 'text-earth-200'
                     : scrolled
                       ? 'text-charcoal-600 hover:text-forest-500'
-                      : 'text-charcoal-700 hover:text-forest-500'
+                      : 'text-cream-100 hover:text-earth-200'
                 }`}
               >
                 {link.label}
@@ -65,7 +68,11 @@ export function PublicHeader() {
           <div className="flex items-center gap-3">
             <Link
               to="/loja"
-              className="relative p-2 text-charcoal-600 hover:text-forest-500 transition-colors"
+              className={`relative p-2 transition-colors ${
+                scrolled
+                  ? 'text-charcoal-600 hover:text-forest-500'
+                  : 'text-cream-100 hover:text-earth-200'
+              }`}
             >
               <ShoppingCart size={20} />
               {count > 0 && (
@@ -87,7 +94,11 @@ export function PublicHeader() {
               <div className="hidden md:flex items-center gap-2">
                 <Link
                   to="/login"
-                  className="text-sm font-medium text-charcoal-600 hover:text-forest-500 transition-colors"
+                  className={`text-sm font-medium transition-colors ${
+                    scrolled
+                      ? 'text-charcoal-600 hover:text-forest-500'
+                      : 'text-cream-100 hover:text-earth-200'
+                  }`}
                 >
                   Entrar
                 </Link>
@@ -102,7 +113,9 @@ export function PublicHeader() {
 
             {/* Mobile menu */}
             <button
-              className="md:hidden p-2 text-charcoal-600"
+              className={`md:hidden p-2 transition-colors ${
+                scrolled ? 'text-charcoal-600' : 'text-cream-100'
+              }`}
               onClick={() => setOpen(!open)}
             >
               {open ? <X size={22} /> : <Menu size={22} />}
