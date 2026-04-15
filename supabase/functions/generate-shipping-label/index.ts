@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
     // ── 1. Buscar pedido ─────────────────────────────────────────────────────
     const { data: ped, error: pedErr } = await supabase
       .from('pedidos')
-      .select('id, numero, cliente_id, endereco_entrega, total, tipo, status')
+      .select('id, numero, cliente_id, endereco_entrega, total, tipo, status, melhorenvio_cart_id')
       .eq('id', pedido_id)
       .single();
     if (pedErr || !ped) return json({ error: 'Pedido não encontrado.' }, 404);

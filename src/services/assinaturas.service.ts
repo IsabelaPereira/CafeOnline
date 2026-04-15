@@ -54,14 +54,24 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
   };
 }
 
-// Select completo — para admin (tem acesso a cobrancas e alteracoes)
+// Select para listagem admin — ciclos sem join aninhado a pedidos (evita falha PostgREST)
+const LIST_SELECT = [
+  '*',
+  'plano:planos(*)',
+  'endereco:enderecos(*)',
+  'cobrancas:cobrancas_assinatura(*)',
+  'alteracoes:alteracoes_assinatura(*)',
+  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id, edicao:edicoes_clube(id, titulo))',
+].join(', ');
+
+// Select completo — para detalhe individual; usa hint explícito para o join pedido
 const BASE_SELECT = [
   '*',
   'plano:planos(*)',
   'endereco:enderecos(*)',
   'cobrancas:cobrancas_assinatura(*)',
   'alteracoes:alteracoes_assinatura(*)',
-  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id, edicao:edicoes_clube(id, titulo), pedido:pedidos(id, numero, status))',
+  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id, edicao:edicoes_clube(id, titulo), pedido:pedidos!pedido_id(id, numero, status))',
 ].join(', ');
 
 // Select para cliente — sem '*' para evitar bug do Supabase JS (stripping do primeiro item).
@@ -118,7 +128,7 @@ async function resolverClienteInfo(clienteIds: string[]): Promise<Map<string, { 
 }
 
 export async function getAssinaturas(): Promise<Assinatura[]> {
-  const { data, error } = await supabase.from('assinaturas').select(BASE_SELECT).order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('assinaturas').select(LIST_SELECT).order('created_at', { ascending: false });
   if (error) throw error;
   const rows = data ?? [];
   const clienteMap = await resolverClienteInfo([...new Set(rows.map((r: any) => r.cliente_id))]);
