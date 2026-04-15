@@ -1,12 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
-import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus, Pause, Play, XCircle, RotateCcw, CreditCard, Calendar, SlidersHorizontal, Columns2, X, ChevronDown } from 'lucide-react';
+import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus, Pause, Play, XCircle, RotateCcw, CreditCard, Calendar, SlidersHorizontal, Columns2, X, ChevronDown, Coffee, Package } from 'lucide-react';
 import {
   Card, Badge, SearchBar, Pagination,
   Modal, Button, SectionHeader, StatCard, Tabs, Input
 } from '../../components/ui';
-import { getAssinaturas, getPlanos, updatePlano, createPlano, manageAssinatura } from '../../services/assinaturas.service';
+import { getAssinaturas, getPlanos, updatePlano, createPlano, manageAssinatura, updatePreferenciaAssinatura, criarPedidoManualAssinatura } from '../../services/assinaturas.service';
+import { getEdicoes } from '../../services/edicoes.service';
 import { supabase } from '../../lib/supabase';
-import type { Assinatura, PlanoAssinatura } from '../../types';
+import type { Assinatura, PlanoAssinatura, EdicaoClube } from '../../types';
 
 const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive'> = {
   ativa: 'active', pendente: 'pending', inadimplente: 'cancelled', cancelada: 'inactive', pausada: 'inactive',
@@ -117,6 +118,15 @@ export function AdminAssinaturas() {
   const [acaoEmAndamento, setAcaoEmAndamento] = useState<string | null>(null);
   const [confirmCancelar, setConfirmCancelar] = useState<{ tipo: 'agendado' | 'imediato' } | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
+  // Preferência
+  const [editandoPreferencia, setEditandoPreferencia] = useState(false);
+  const [formPreferencia, setFormPreferencia] = useState<{ preferenciaCafe: 'grao' | 'moido'; tipoMoagem: string }>({ preferenciaCafe: 'grao', tipoMoagem: '' });
+  const [salvandoPreferencia, setSalvandoPreferencia] = useState(false);
+  // Pedido manual
+  const [criandoPedidoManual, setCriandoPedidoManual] = useState(false);
+  const [edicoes, setEdicoes] = useState<EdicaoClube[]>([]);
+  const [formPedidoManual, setFormPedidoManual] = useState({ mes: String(new Date().getMonth() + 1), ano: String(new Date().getFullYear()), edicaoId: '' });
+  const [salvandoPedidoManual, setSalvandoPedidoManual] = useState(false);
   const [filtrosAtivos, setFiltrosAtivos] = useState<FiltroAtivo[]>([]);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [mostrarColunas, setMostrarColunas] = useState(false);
@@ -247,9 +257,53 @@ export function AdminAssinaturas() {
     }
   }
 
+  async function handleSalvarPreferencia() {
+    if (!selected) return;
+    setSalvandoPreferencia(true);
+    try {
+      await updatePreferenciaAssinatura(
+        selected.id,
+        formPreferencia.preferenciaCafe,
+        formPreferencia.preferenciaCafe === 'moido' ? formPreferencia.tipoMoagem || undefined : undefined,
+      );
+      const updated = await getAssinaturas();
+      setAssinaturas(updated);
+      const updatedSelected = updated.find(a => a.id === selected.id) ?? null;
+      setSelected(updatedSelected);
+      setEditandoPreferencia(false);
+    } catch {
+      alert('Erro ao salvar preferência.');
+    } finally {
+      setSalvandoPreferencia(false);
+    }
+  }
+
+  async function handleCriarPedidoManual() {
+    if (!selected) return;
+    const mes = parseInt(formPedidoManual.mes);
+    const ano = parseInt(formPedidoManual.ano);
+    if (!mes || !ano) { alert('Informe mês e ano válidos.'); return; }
+    setSalvandoPedidoManual(true);
+    try {
+      await criarPedidoManualAssinatura(
+        selected.id,
+        mes,
+        ano,
+        formPedidoManual.edicaoId || undefined,
+      );
+      setCriandoPedidoManual(false);
+      alert(`Pedido DM-${ano}${String(mes).padStart(2, '0')} criado com sucesso.`);
+    } catch (e: unknown) {
+      alert(`Erro: ${e instanceof Error ? e.message : 'Erro desconhecido'}`);
+    } finally {
+      setSalvandoPedidoManual(false);
+    }
+  }
+
   useEffect(() => {
     getAssinaturas().then(setAssinaturas).catch(console.error);
     getPlanos().then(setPlanos).catch(console.error);
+    getEdicoes().then(setEdicoes).catch(console.error);
   }, []);
 
   const filtered = assinaturas.filter(a => {
@@ -836,6 +890,41 @@ export function AdminAssinaturas() {
                 </Button>
               </div>
             )}
+
+            {/* Preferência e pedido manual */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setFormPreferencia({
+                    preferenciaCafe: selected.preferenciaCafe,
+                    tipoMoagem: selected.tipoMoagem ?? '',
+                  });
+                  setEditandoPreferencia(true);
+                }}
+                icon={<Coffee size={13} />}
+              >
+                Alterar preferência
+              </Button>
+              {selected.status !== 'cancelada' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setFormPedidoManual({
+                      mes: String(new Date().getMonth() + 1),
+                      ano: String(new Date().getFullYear()),
+                      edicaoId: '',
+                    });
+                    setCriandoPedidoManual(true);
+                  }}
+                  icon={<Package size={13} />}
+                >
+                  Gerar pedido manual
+                </Button>
+              )}
+            </div>
 
             {/* Actions */}
             <div className="flex flex-wrap gap-2 pt-2 border-t border-cream-200">

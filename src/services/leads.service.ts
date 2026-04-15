@@ -20,7 +20,7 @@ function mapLead(r: any): Lead {
 const LEAD_SELECT = [
   'etapa, id, nome, email, telefone, origem, interesse, plano_desejado, tags, responsavel',
   'ultimo_contato, proximo_follow_up, observacoes, cliente_id, created_at',
-  'interacoes:interacoes_crm(id, tipo, conteudo, data, usuario)',
+  'interacoes:interacoes_crm(id, tipo, descricao, data, usuario)',
 ].join(', ');
 
 export async function getLeads(): Promise<Lead[]> {

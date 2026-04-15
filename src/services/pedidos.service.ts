@@ -55,8 +55,10 @@ function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedid
     formaPagamento: r.forma_pagamento ?? '', cupom: r.cupom ?? undefined,
     codigoRastreio: r.codigo_rastreio ?? undefined, observacoes: r.observacoes ?? undefined,
     tipo: (r.tipo ?? 'loja') as 'loja' | 'assinatura',
-    assinaturaId: r.assinatura_id ?? undefined,
-    cicloId: r.ciclo_id ?? undefined,
+    assinaturaId:       r.assinatura_id ?? undefined,
+    cicloId:            r.ciclo_id ?? undefined,
+    melhorenvioCartId:  r.melhorenvio_cart_id ?? undefined,
+    etiquetaUrl:        r.etiqueta_url ?? undefined,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -65,7 +67,7 @@ function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedid
 const PEDIDO_SELECT = [
   'status, id, numero, cliente_id, subtotal, frete, desconto, total',
   'endereco_entrega, forma_pagamento, cupom, codigo_rastreio, observacoes',
-  'tipo, assinatura_id, ciclo_id, created_at, updated_at',
+  'tipo, assinatura_id, ciclo_id, melhorenvio_cart_id, etiqueta_url, created_at, updated_at',
   'itens:itens_pedido(id, produto_id, nome_produto, sku_produto, quantidade, preco_unitario, subtotal)',
 ].join(', ');
 
@@ -120,6 +122,26 @@ export async function createPedido(pedido: {
 export async function updatePedidoStatus(id: string, status: Pedido['status']): Promise<void> {
   const { error } = await supabase.from('pedidos').update({ status }).eq('id', id);
   if (error) throw error;
+}
+
+export async function gerarEtiqueta(
+  pedidoId: string,
+): Promise<{ success: boolean; cart_id?: string; label_url?: string; tracking_code?: string; error?: string }> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token ?? supabaseKey;
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/generate-shipping-label`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:  `Bearer ${token}`,
+      apikey:         supabaseKey,
+    },
+    body: JSON.stringify({ pedido_id: pedidoId }),
+  });
+  return res.json();
 }
 
 export async function updatePedidoRastreio(id: string, codigoRastreio: string, status?: Pedido['status']): Promise<void> {

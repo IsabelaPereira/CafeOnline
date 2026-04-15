@@ -230,6 +230,8 @@ export interface Pedido {
   tipo: 'loja' | 'assinatura';
   assinaturaId?: string;
   cicloId?: string;
+  melhorenvioCartId?: string;
+  etiquetaUrl?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, Package, Truck, Check, X, Plus, Trash2, Search } from 'lucide-react';
+import { Eye, Package, Truck, Check, X, Plus, Trash2, Search, Tag, ExternalLink, AlertCircle } from 'lucide-react';
 import {
   Card, Badge, SearchBar, FilterBar, Select, Pagination,
   Modal, Button, SectionHeader, Input,
 } from '../../components/ui';
-import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, buscarClientePorEmail } from '../../services/pedidos.service';
+import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, buscarClientePorEmail, gerarEtiqueta } from '../../services/pedidos.service';
 import type { Pedido, Endereco } from '../../types';
 
 const statusOptions = [
@@ -36,6 +36,8 @@ export function AdminPedidos() {
   const [selected, setSelected] = useState<Pedido | null>(null);
   const [rastreio, setRastreio] = useState('');
   const [salvandoRastreio, setSalvandoRastreio] = useState(false);
+  const [gerandoEtiqueta, setGerandoEtiqueta] = useState(false);
+  const [erroEtiqueta, setErroEtiqueta] = useState('');
   const perPage = 10;
 
   // ── Novo pedido ─────────────────────────────────────────────────────────────
@@ -140,6 +142,28 @@ export function AdminPedidos() {
     }
   }
 
+  async function handleGerarEtiqueta() {
+    if (!selected) return;
+    setGerandoEtiqueta(true);
+    setErroEtiqueta('');
+    try {
+      const result = await gerarEtiqueta(selected.id);
+      if (result.error) {
+        setErroEtiqueta(result.error);
+        return;
+      }
+      // Recarregar pedidos para pegar campos atualizados
+      const atualizados = await getPedidos();
+      setPedidos(atualizados);
+      const updatedSelected = atualizados.find(p => p.id === selected.id) ?? null;
+      setSelected(updatedSelected);
+    } catch {
+      setErroEtiqueta('Erro ao conectar com o servidor. Tente novamente.');
+    } finally {
+      setGerandoEtiqueta(false);
+    }
+  }
+
   async function handleSalvarRastreio() {
     if (!selected || !rastreio.trim()) return;
     setSalvandoRastreio(true);
@@ -192,18 +216,19 @@ export function AdminPedidos() {
                 <th className="table-th">Pagamento</th>
                 <th className="table-th">Data</th>
                 <th className="table-th">Status</th>
+                <th className="table-th">Envio</th>
                 <th className="table-th">Ações</th>
               </tr>
             </thead>
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-sm text-charcoal-400">
+                  <td colSpan={9} className="px-4 py-12 text-center text-sm text-charcoal-400">
                     Nenhum pedido encontrado
                   </td>
                 </tr>
               ) : paginated.map(p => (
-                <tr key={p.id} className="border-t border-cream-100 hover:bg-cream-50 transition-colors cursor-pointer" onClick={() => { setSelected(p); setRastreio(p.codigoRastreio ?? ''); }}>
+                <tr key={p.id} className="border-t border-cream-100 hover:bg-cream-50 transition-colors cursor-pointer" onClick={() => { setSelected(p); setRastreio(p.codigoRastreio ?? ''); setErroEtiqueta(''); }}>
                   <td className="table-td font-medium text-charcoal-700">{p.numero}</td>
                   <td className="table-td">
                     <p className="text-sm text-charcoal-700">{p.cliente?.name ?? '—'}</p>
@@ -217,7 +242,18 @@ export function AdminPedidos() {
                     <Badge variant={statusVariant[p.status] ?? 'inactive'}>{p.status}</Badge>
                   </td>
                   <td className="table-td">
-                    <button onClick={e => { e.stopPropagation(); setSelected(p); setRastreio(p.codigoRastreio ?? ''); }} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors">
+                    {p.etiquetaUrl ? (
+                      <a href={p.etiquetaUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="flex items-center gap-1 text-xs text-forest-600 hover:text-forest-700 font-medium">
+                        <Tag size={12} /> Etiqueta
+                      </a>
+                    ) : p.codigoRastreio ? (
+                      <span className="text-xs text-charcoal-400 font-mono">{p.codigoRastreio}</span>
+                    ) : (
+                      <span className="text-xs text-charcoal-300">—</span>
+                    )}
+                  </td>
+                  <td className="table-td">
+                    <button onClick={e => { e.stopPropagation(); setSelected(p); setRastreio(p.codigoRastreio ?? ''); setErroEtiqueta(''); }} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors">
                       <Eye size={15} />
                     </button>
                   </td>
@@ -443,10 +479,57 @@ export function AdminPedidos() {
               </div>
             )}
 
-            {/* Rastreio */}
-            {selected.status !== 'cancelado' && selected.status !== 'entregue' && (
+            {/* Etiqueta MelhorEnvio */}
+            {selected.status !== 'cancelado' && selected.status !== 'reembolsado' && (
               <div>
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Código de rastreio</p>
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Etiqueta de envio</p>
+
+                {selected.etiquetaUrl ? (
+                  /* Etiqueta já gerada */
+                  <div className="flex flex-wrap items-center gap-3 p-3 bg-forest-50 border border-forest-200 rounded-sm">
+                    <Tag size={16} className="text-forest-500" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-forest-700">Etiqueta gerada</p>
+                      {selected.codigoRastreio && (
+                        <p className="text-xs text-charcoal-500 font-mono mt-0.5">{selected.codigoRastreio}</p>
+                      )}
+                    </div>
+                    <a href={selected.etiquetaUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="primary" size="sm" icon={<ExternalLink size={13} />}>
+                        Imprimir etiqueta
+                      </Button>
+                    </a>
+                  </div>
+                ) : (
+                  /* Sem etiqueta — gerar */
+                  <div className="space-y-2">
+                    {erroEtiqueta && (
+                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-sm text-sm text-red-700">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        {erroEtiqueta}
+                      </div>
+                    )}
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      loading={gerandoEtiqueta}
+                      onClick={handleGerarEtiqueta}
+                      icon={<Tag size={13} />}
+                    >
+                      {gerandoEtiqueta ? 'Gerando etiqueta…' : 'Gerar etiqueta (MelhorEnvio)'}
+                    </Button>
+                    <p className="text-xs text-charcoal-400">
+                      Gera a etiqueta e debita do saldo MelhorEnvio automaticamente.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Rastreio manual */}
+            {!selected.etiquetaUrl && selected.status !== 'cancelado' && selected.status !== 'entregue' && (
+              <div>
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Código de rastreio manual</p>
                 <div className="flex gap-2">
                   <Input value={rastreio} onChange={e => setRastreio(e.target.value)} placeholder="Ex: BR123456789BR" className="flex-1" />
                   <Button variant="secondary" size="sm" loading={salvandoRastreio} onClick={handleSalvarRastreio} icon={<Truck size={13} />}>

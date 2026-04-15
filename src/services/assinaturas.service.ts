@@ -219,3 +219,86 @@ export async function createPlano(p: Pick<PlanoAssinatura, 'nome' | 'descricao' 
   if (error) throw error;
   return mapPlano(data);
 }
+
+export async function updatePreferenciaAssinatura(
+  id: string,
+  preferenciaCafe: 'grao' | 'moido',
+  tipoMoagem?: string,
+): Promise<void> {
+  const { error } = await supabase.from('assinaturas').update({
+    preferencia_cafe: preferenciaCafe,
+    tipo_moagem: tipoMoagem ?? null,
+  }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function criarPedidoManualAssinatura(
+  assinaturaId: string,
+  mes: number,
+  ano: number,
+  edicaoId?: string,
+): Promise<string> {
+  const { data: ass, error: assErr } = await supabase
+    .from('assinaturas')
+    .select('id, cliente_id, frete, total_mensal, endereco_id')
+    .eq('id', assinaturaId)
+    .single();
+  if (assErr || !ass) throw new Error('Assinatura não encontrada');
+
+  let enderecoJson: Record<string, unknown> = {};
+  if (ass.endereco_id) {
+    const { data: end } = await supabase
+      .from('enderecos')
+      .select('id, cep, logradouro, numero, complemento, bairro, cidade, estado')
+      .eq('id', ass.endereco_id)
+      .single();
+    if (end) enderecoJson = end;
+  }
+
+  const { data: ciclo } = await supabase
+    .from('ciclos_assinatura')
+    .upsert(
+      { assinatura_id: assinaturaId, mes, ano, edicao_id: edicaoId ?? null, status: 'pendente' },
+      { onConflict: 'assinatura_id,mes,ano', ignoreDuplicates: false },
+    )
+    .select('id')
+    .single();
+
+  const numero = `DM-${ano}${String(mes).padStart(2, '0')}-M${String(Date.now()).slice(-4)}`;
+  const valor = ass.total_mensal ?? 0;
+
+  const { data: pedido, error: pedErr } = await supabase.from('pedidos').insert({
+    numero,
+    cliente_id:       ass.cliente_id,
+    subtotal:         valor,
+    frete:            ass.frete ?? 0,
+    desconto:         0,
+    total:            valor,
+    status:           'pago',
+    endereco_entrega: enderecoJson,
+    forma_pagamento:  'Stripe — Assinatura',
+    tipo:             'assinatura',
+    assinatura_id:    assinaturaId,
+    ciclo_id:         ciclo?.id ?? null,
+  }).select('id').single();
+
+  if (pedErr || !pedido) throw new Error(`Erro ao criar pedido: ${pedErr?.message}`);
+
+  await supabase.from('itens_pedido').insert({
+    pedido_id:      pedido.id,
+    produto_id:     null,
+    nome_produto:   `Clube Das Matas — Edição ${mes}/${ano}`,
+    sku_produto:    `CLUBE-${ano}${String(mes).padStart(2, '0')}`,
+    quantidade:     1,
+    preco_unitario: valor,
+    subtotal:       valor,
+  });
+
+  if (ciclo?.id) {
+    await supabase.from('ciclos_assinatura')
+      .update({ pedido_id: pedido.id })
+      .eq('id', ciclo.id);
+  }
+
+  return pedido.id;
+}

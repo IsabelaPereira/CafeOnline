@@ -174,6 +174,26 @@ async function handleCheckoutComplete(
     }
   }
 
+  // ── Criar pedido imediatamente via primeira fatura ──────────────────────────
+  // Isso elimina a race condition: invoice.paid pode chegar antes deste handler
+  // terminar de salvar stripe_subscription_id no banco. Aqui temos assinatura_id
+  // diretamente do metadata da sessão — sem dependência de estado no DB.
+  // A idempotência de handleInvoicePaid (stripe_invoice_id unique) garante que
+  // quando invoice.paid chegar depois, será ignorado sem duplicar o pedido.
+  try {
+    const firstInvoiceId = session.invoice as string | null;
+    if (firstInvoiceId) {
+      const firstInvoice = await stripe.invoices.retrieve(firstInvoiceId);
+      if (firstInvoice.status === 'paid') {
+        await handleInvoicePaid(firstInvoice, stripe, supabase);
+        console.log(`[checkout.session.completed] Pedido criado via fatura ${firstInvoiceId}`);
+      }
+    }
+  } catch (e) {
+    // Não relança — invoice.paid também processará quando chegar (idempotência)
+    console.error('[checkout.session.completed] Erro ao criar pedido inicial:', e);
+  }
+
   console.log(`[checkout.session.completed] Concluído para assinatura ${assinaturaId}`);
 }
 
