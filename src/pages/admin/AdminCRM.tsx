@@ -3,13 +3,14 @@ import {
   Plus, MessageCircle, Mail, Phone, Tag, Users, ArrowRight,
   Eye, Pencil, SlidersHorizontal, Columns2, X, ChevronDown,
   CreditCard, MapPin, Star, ShoppingBag, Repeat, Calendar, TrendingUp,
-  Loader2,
+  Loader2, GripVertical, Settings2, RotateCcw,
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Card, Button, Modal, Input, Select, Textarea, SectionHeader,
   SearchBar, Tabs, Pagination,
 } from '../../components/ui';
-import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem } from '../../services/leads.service';
+import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem, updateLeadEtapa, addInteracao } from '../../services/leads.service';
 import { getClientes, updateCliente } from '../../services/clientes.service';
 import { getPedidos } from '../../services/pedidos.service';
 import { getAssinaturasCliente } from '../../services/assinaturas.service';
@@ -44,14 +45,26 @@ const ETAPAS_EXCLUIDAS_FUNIL = new Set<LeadEtapa>([
   'pagamento_invalido', 'pagamento_pendente', 'cliente_ativo', 'recuperacao',
 ]);
 const etapasFunil = etapas.filter(e => !ETAPAS_EXCLUIDAS_FUNIL.has(e.id));
+const FUNIL_DEFAULT_ORDEM = etapasFunil.map(e => e.id);
 
-function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+function LeadCard({ lead, onClick, onDragStart, onDragEnd }: {
+  lead: Lead;
+  onClick: () => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+}) {
   const etapa = etapas.find(e => e.id === lead.etapa);
   const origemIcon: Record<string, string> = {
     checkout: '🛒', reserva: '📅', manual: '✍️', blog: '📝', social: '📱', indicacao: '👥', landing: '🎯',
   };
   return (
-    <div onClick={onClick} className="bg-white rounded-sm border border-cream-200 p-4 hover:shadow-md transition-all cursor-pointer">
+    <div
+      draggable={!!onDragStart}
+      onDragStart={e => { e.stopPropagation(); onDragStart?.(); }}
+      onDragEnd={onDragEnd}
+      onClick={onClick}
+      className="bg-white rounded-sm border border-cream-200 p-4 hover:shadow-md transition-all cursor-grab select-none"
+    >
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="font-medium text-charcoal-700 text-sm">{lead.nome}</p>
@@ -168,6 +181,31 @@ export function AdminCRM() {
     pedidos: Pedido[]; assinaturas: Assinatura[]; reservas: Reserva[]; loading: boolean;
   }>({ pedidos: [], assinaturas: [], reservas: [], loading: false });
 
+  // ── Preferências do funil (por usuário, persistidas em localStorage) ────────
+  const { user } = useAuth();
+  const [funilOrdem,    setFunilOrdem]    = useState<LeadEtapa[]>(FUNIL_DEFAULT_ORDEM);
+  const [funilVisiveis, setFunilVisiveis] = useState<Set<LeadEtapa>>(new Set(FUNIL_DEFAULT_ORDEM));
+  const [showFunilConfig, setShowFunilConfig] = useState(false);
+  const funilConfigRef = useRef<HTMLDivElement>(null);
+  // drag no painel de configuração
+  const [dragCfgSrc,  setDragCfgSrc]  = useState<LeadEtapa | null>(null);
+  // drag direto nas colunas do funil
+  const [dragColSrc,  setDragColSrc]  = useState<LeadEtapa | null>(null);
+  const [dragColOver, setDragColOver] = useState<LeadEtapa | null>(null);
+  // drag de cards entre colunas
+  const [dragCardLeadId, setDragCardLeadId] = useState<string | null>(null);
+  const [dragCardOver,   setDragCardOver]   = useState<LeadEtapa | null>(null);
+
+  // ── Atualização de etapa ───────────────────────────────────────────────────
+  const [atualizandoEtapa, setAtualizandoEtapa] = useState<string | null>(null);
+
+  // ── Nova interação ─────────────────────────────────────────────────────────
+  const [novaInteracaoModal, setNovaInteracaoModal] = useState(false);
+  const [formInter, setFormInter] = useState<{ tipo: 'email' | 'whatsapp' | 'ligacao'; descricao: string }>({
+    tipo: 'email', descricao: '',
+  });
+  const [salvandoInter, setSalvandoInter] = useState(false);
+
   // ── Histórico de etapa por lead ────────────────────────────────────────────
   const [leadHistorico, setLeadHistorico] = useState<Record<string, HistoricoEtapaLead[]>>({});
   const [leadHistLoading, setLeadHistLoading] = useState<Record<string, boolean>>({});
@@ -255,6 +293,151 @@ export function AdminCRM() {
   const clienteLeadsAtual = selectedCliente
     ? leads.filter(l => l.clienteId === selectedCliente.id || l.email === selectedCliente.email)
     : [];
+
+  // ── Preferências do funil: load/save localStorage ─────────────────────────
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const raw = localStorage.getItem(`dsmatas_funil_cols_${user.id}`);
+      if (!raw) return;
+      const prefs = JSON.parse(raw) as { ordem: LeadEtapa[]; visiveis: LeadEtapa[] };
+      const validIds = new Set(etapas.map(e => e.id));
+      const ordemValida = prefs.ordem.filter(id => validIds.has(id));
+      // garante que etapas novas não salvas ainda apareçam no fim
+      for (const id of FUNIL_DEFAULT_ORDEM) {
+        if (!ordemValida.includes(id)) ordemValida.push(id);
+      }
+      setFunilOrdem(ordemValida);
+      setFunilVisiveis(new Set(prefs.visiveis.filter(id => validIds.has(id))));
+    } catch { /* usa defaults */ }
+  }, [user?.id]);
+
+  function saveFunilPrefs(ordem: LeadEtapa[], visiveis: Set<LeadEtapa>) {
+    if (!user?.id) return;
+    localStorage.setItem(
+      `dsmatas_funil_cols_${user.id}`,
+      JSON.stringify({ ordem, visiveis: [...visiveis] }),
+    );
+  }
+
+  // colunas visíveis na ordem salva
+  const etapasFunilAtivas = funilOrdem
+    .filter(id => funilVisiveis.has(id))
+    .map(id => etapas.find(e => e.id === id))
+    .filter((e): e is typeof etapas[0] => !!e);
+
+  // ── Handlers funil: config panel ──────────────────────────────────────────
+  function toggleFunilVisivel(id: LeadEtapa) {
+    const next = new Set(funilVisiveis);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setFunilVisiveis(next);
+    saveFunilPrefs(funilOrdem, next);
+  }
+
+  function resetFunilPrefs() {
+    setFunilOrdem(FUNIL_DEFAULT_ORDEM);
+    const next = new Set<LeadEtapa>(FUNIL_DEFAULT_ORDEM);
+    setFunilVisiveis(next);
+    saveFunilPrefs(FUNIL_DEFAULT_ORDEM, next);
+  }
+
+  // drag no painel de configuração (reordena a lista)
+  function handleCfgDragOver(e: React.DragEvent, id: LeadEtapa) {
+    e.preventDefault();
+    if (!dragCfgSrc || dragCfgSrc === id) return;
+    const next = [...funilOrdem];
+    const from = next.indexOf(dragCfgSrc);
+    const to   = next.indexOf(id);
+    if (from === -1 || to === -1) return;
+    next.splice(from, 1);
+    next.splice(to, 0, dragCfgSrc);
+    setFunilOrdem(next);
+  }
+
+  function handleCfgDrop() {
+    saveFunilPrefs(funilOrdem, funilVisiveis);
+    setDragCfgSrc(null);
+  }
+
+  // drag direto nas colunas do funil
+  function handleColDragOver(e: React.DragEvent, id: LeadEtapa) {
+    e.preventDefault();
+    if (dragColSrc && dragColSrc !== id) setDragColOver(id);
+  }
+
+  function handleColDrop(id: LeadEtapa) {
+    if (!dragColSrc || dragColSrc === id) { setDragColSrc(null); setDragColOver(null); return; }
+    const next = [...funilOrdem];
+    const from = next.indexOf(dragColSrc);
+    const to   = next.indexOf(id);
+    if (from !== -1 && to !== -1) {
+      next.splice(from, 1);
+      next.splice(to, 0, dragColSrc);
+      setFunilOrdem(next);
+      saveFunilPrefs(next, funilVisiveis);
+    }
+    setDragColSrc(null);
+    setDragColOver(null);
+  }
+
+  // ── Atualizar etapa do lead ────────────────────────────────────────────────
+  async function handleAtualizarEtapaLead(leadId: string, novaEtapa: LeadEtapa) {
+    setAtualizandoEtapa(leadId);
+    try {
+      await updateLeadEtapa(leadId, novaEtapa, user?.name ?? 'admin');
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, etapa: novaEtapa } : l));
+      if (selectedLead?.id === leadId) {
+        setSelectedLead(prev => prev ? { ...prev, etapa: novaEtapa } : prev);
+        setLeadHistorico(prev => { const next = { ...prev }; delete next[leadId]; return next; });
+        carregarHistoricoLead(leadId);
+      }
+    } catch {
+      alert('Erro ao atualizar etapa.');
+    } finally {
+      setAtualizandoEtapa(null);
+    }
+  }
+
+  // drag de cards entre colunas
+  function handleCardDrop(etapaId: LeadEtapa) {
+    if (!dragCardLeadId) return;
+    const lead = leads.find(l => l.id === dragCardLeadId);
+    if (lead && lead.etapa !== etapaId) handleAtualizarEtapaLead(dragCardLeadId, etapaId);
+    setDragCardLeadId(null);
+    setDragCardOver(null);
+  }
+
+  // ── Salvar nova interação ─────────────────────────────────────────────────
+  async function handleSalvarInteracao() {
+    if (!selectedLead || !formInter.descricao.trim()) return;
+    setSalvandoInter(true);
+    try {
+      await addInteracao(selectedLead.id, formInter.tipo, formInter.descricao.trim(), user?.name ?? 'admin');
+      // Recarrega o lead para exibir a nova interação
+      const { getLeads: gl } = await import('../../services/leads.service');
+      const updated = await gl();
+      setLeads(updated);
+      const novo = updated.find(l => l.id === selectedLead.id);
+      if (novo) setSelectedLead(novo);
+      setNovaInteracaoModal(false);
+      setFormInter({ tipo: 'email', descricao: '' });
+    } catch {
+      alert('Erro ao salvar interação.');
+    } finally {
+      setSalvandoInter(false);
+    }
+  }
+
+  // fechar config panel ao clicar fora
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (funilConfigRef.current && !funilConfigRef.current.contains(e.target as Node)) {
+        setShowFunilConfig(false);
+      }
+    }
+    if (showFunilConfig) document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [showFunilConfig]);
 
   // Carrega histórico de etapas quando aba funil é aberta (modal de cliente)
   useEffect(() => {
@@ -363,29 +546,144 @@ export function AdminCRM() {
 
       {/* ── FUNIL ─────────────────────────────────────────────────────────── */}
       {tab === 'funil' && (
-        <div className="overflow-x-auto pb-4">
-          <div className="flex gap-4 min-w-max">
-            {etapasFunil.map(etapa => {
-              const etapaLeads = leadsPorEtapa(etapa.id);
-              return (
-                <div key={etapa.id} className="w-64 shrink-0">
-                  <div className={`flex items-center justify-between px-3 py-2 rounded-sm border mb-3 ${etapa.color}`}>
-                    <span className="text-xs font-medium">{etapa.label}</span>
-                    <span className="text-xs font-bold">{etapaLeads.length}</span>
+        <div className="space-y-3">
+
+          {/* Toolbar: busca + botão de configuração */}
+          <div className="flex items-center gap-3">
+            <div className="relative" ref={funilConfigRef}>
+              <button
+                onClick={() => setShowFunilConfig(v => !v)}
+                className={`flex items-center gap-2 px-3 py-2 text-sm rounded-sm border transition-colors ${
+                  showFunilConfig
+                    ? 'bg-forest-500 text-white border-forest-600'
+                    : 'bg-white text-charcoal-600 border-cream-300 hover:border-earth-300'
+                }`}
+              >
+                <Settings2 size={14} />
+                Colunas
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${showFunilConfig ? 'bg-white/20' : 'bg-cream-200 text-charcoal-500'}`}>
+                  {etapasFunilAtivas.length}
+                </span>
+              </button>
+
+              {/* Painel de configuração */}
+              {showFunilConfig && (
+                <div className="absolute left-0 top-full mt-1 z-50 w-72 bg-white rounded-sm border border-cream-200 shadow-lg">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-cream-100">
+                    <span className="text-sm font-medium text-charcoal-700">Gerenciar colunas</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={resetFunilPrefs}
+                        className="flex items-center gap-1 text-xs text-charcoal-400 hover:text-charcoal-600 transition-colors"
+                        title="Restaurar padrão"
+                      >
+                        <RotateCcw size={12} /> Padrão
+                      </button>
+                      <button onClick={() => setShowFunilConfig(false)} className="text-charcoal-400 hover:text-charcoal-600">
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="space-y-3 min-h-24">
-                    {etapaLeads.map(lead => (
-                      <LeadCard key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} />
-                    ))}
-                    {etapaLeads.length === 0 && (
-                      <div className="flex items-center justify-center h-16 border-2 border-dashed border-cream-300 rounded-sm text-xs text-charcoal-300">
-                        Nenhum lead
-                      </div>
-                    )}
+                  <div className="py-1 max-h-80 overflow-y-auto">
+                    {funilOrdem.map(id => {
+                      const et = etapas.find(e => e.id === id);
+                      if (!et) return null;
+                      const visivel = funilVisiveis.has(id);
+                      return (
+                        <div
+                          key={id}
+                          draggable
+                          onDragStart={e => { setDragCfgSrc(id); e.dataTransfer.effectAllowed = 'move'; }}
+                          onDragOver={e => handleCfgDragOver(e, id)}
+                          onDrop={handleCfgDrop}
+                          onDragEnd={() => setDragCfgSrc(null)}
+                          className={`flex items-center gap-3 px-3 py-2.5 cursor-grab hover:bg-cream-50 transition-colors ${
+                            dragCfgSrc === id ? 'opacity-40' : ''
+                          }`}
+                        >
+                          <GripVertical size={14} className="text-charcoal-300 shrink-0" />
+                          <input
+                            type="checkbox"
+                            checked={visivel}
+                            onChange={() => toggleFunilVisivel(id)}
+                            className="accent-forest-500 w-4 h-4 shrink-0"
+                          />
+                          <span className={`flex-1 text-xs px-2 py-0.5 rounded border font-medium ${et.color}`}>
+                            {et.label}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="px-4 py-2 border-t border-cream-100 text-[10px] text-charcoal-400">
+                    Arraste para reordenar · Checkbox para mostrar/ocultar
                   </div>
                 </div>
-              );
-            })}
+              )}
+            </div>
+          </div>
+
+          {/* Colunas do funil */}
+          <div className="overflow-x-auto pb-4">
+            <div className="flex gap-4 min-w-max">
+              {etapasFunilAtivas.map(etapa => {
+                const etapaLeads   = leadsPorEtapa(etapa.id);
+                const isColDragOver  = dragColOver  === etapa.id;
+                const isCardDragOver = dragCardOver === etapa.id;
+                const isDragging     = dragColSrc   === etapa.id;
+                return (
+                  <div
+                    key={etapa.id}
+                    className={`w-64 shrink-0 transition-opacity ${isDragging ? 'opacity-40' : ''}`}
+                    onDragOver={e => {
+                      e.preventDefault();
+                      if (dragCardLeadId) setDragCardOver(etapa.id);
+                      else handleColDragOver(e, etapa.id);
+                    }}
+                    onDrop={() => {
+                      if (dragCardLeadId) handleCardDrop(etapa.id);
+                      else handleColDrop(etapa.id);
+                    }}
+                    onDragLeave={() => { setDragColOver(null); setDragCardOver(null); }}
+                  >
+                    {/* Cabeçalho da coluna — arrastável */}
+                    <div
+                      draggable
+                      onDragStart={e => { setDragColSrc(etapa.id); e.dataTransfer.effectAllowed = 'move'; }}
+                      onDragEnd={() => { setDragColSrc(null); setDragColOver(null); }}
+                      className={`flex items-center justify-between px-3 py-2 rounded-sm border mb-3 cursor-grab select-none transition-all ${etapa.color} ${
+                        isColDragOver ? 'ring-2 ring-forest-400 ring-offset-1' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <GripVertical size={12} className="opacity-50" />
+                        <span className="text-xs font-medium">{etapa.label}</span>
+                      </div>
+                      <span className="text-xs font-bold">{etapaLeads.length}</span>
+                    </div>
+
+                    <div className={`space-y-3 min-h-24 rounded-sm transition-colors ${isCardDragOver ? 'bg-forest-50 ring-2 ring-forest-300 ring-offset-1' : ''}`}>
+                      {etapaLeads.map(lead => (
+                        <LeadCard
+                          key={lead.id}
+                          lead={lead}
+                          onClick={() => setSelectedLead(lead)}
+                          onDragStart={() => { setDragCardLeadId(lead.id); }}
+                          onDragEnd={() => { setDragCardLeadId(null); setDragCardOver(null); }}
+                        />
+                      ))}
+                      {etapaLeads.length === 0 && (
+                        <div className={`flex items-center justify-center h-16 border-2 border-dashed rounded-sm text-xs transition-colors ${
+                          isCardDragOver ? 'border-forest-400 bg-forest-50 text-forest-600' : 'border-cream-300 text-charcoal-300'
+                        }`}>
+                          {isCardDragOver ? 'Soltar aqui' : 'Nenhum lead'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -631,11 +929,22 @@ export function AdminCRM() {
               <div className="flex items-center gap-3">
                 <div className="flex-1">
                   <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Etapa do funil</p>
-                  <Select value={selectedLead.etapa} onChange={() => {}} options={etapas.map(e => ({ value: e.id, label: e.label }))} />
+                  <Select
+                    value={selectedLead.etapa}
+                    onChange={e => handleAtualizarEtapaLead(selectedLead.id, e.target.value as LeadEtapa)}
+                    options={etapas.filter(e => [
+                      'checkout_plano','checkout_contato','checkout_preferencias',
+                      'checkout_endereco','checkout_pagamento','assinatura_concluida',
+                      'interesse_reserva','inadimplente','perdido',
+                    ].includes(e.id)).map(e => ({ value: e.id, label: e.label }))}
+                    disabled={atualizandoEtapa === selectedLead.id}
+                  />
                 </div>
                 {etapaAtual && (
                   <span className={`mt-6 px-3 py-1.5 text-xs rounded border font-medium ${etapaAtual.color}`}>
-                    {etapaAtual.label}
+                    {atualizandoEtapa === selectedLead.id
+                      ? <Loader2 size={12} className="animate-spin inline" />
+                      : etapaAtual.label}
                   </span>
                 )}
               </div>
@@ -822,12 +1131,54 @@ export function AdminCRM() {
               {/* ── Ações ─────────────────────────────────────────────────── */}
               <div className="flex gap-3 pt-2 border-t border-cream-200">
                 <Button variant="primary" size="sm"><MessageCircle size={14} />Enviar WhatsApp</Button>
+                <Button variant="secondary" size="sm" onClick={() => { setFormInter({ tipo: 'email', descricao: '' }); setNovaInteracaoModal(true); }}>
+                  <Plus size={14} />Nova interação
+                </Button>
                 <Button variant="secondary" size="sm"><Mail size={14} />Enviar e-mail</Button>
                 {!selectedLead.clienteId && <Button variant="ghost" size="sm"><ArrowRight size={14} />Converter em cliente</Button>}
               </div>
             </div>
           );
         })()}
+      </Modal>
+
+      {/* ── Modal nova interação ───────────────────────────────────────────── */}
+      <Modal open={novaInteracaoModal} onClose={() => setNovaInteracaoModal(false)} title="Nova interação" size="sm">
+        {selectedLead && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Tipo</label>
+              <select
+                value={formInter.tipo}
+                onChange={e => setFormInter(prev => ({ ...prev, tipo: e.target.value as 'email' | 'whatsapp' | 'ligacao' }))}
+                className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400"
+              >
+                <option value="email">E-mail</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="ligacao">Ligação</option>
+              </select>
+            </div>
+            <Textarea
+              label="Descrição"
+              value={formInter.descricao}
+              onChange={e => setFormInter(prev => ({ ...prev, descricao: e.target.value }))}
+              placeholder="Descreva a interação..."
+              rows={4}
+            />
+            <div className="flex justify-end gap-3 pt-1">
+              <Button variant="ghost" size="sm" onClick={() => setNovaInteracaoModal(false)}>Cancelar</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSalvarInteracao}
+                disabled={salvandoInter || !formInter.descricao.trim()}
+              >
+                {salvandoInter ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                Salvar interação
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* ── Modal detalhe cliente ──────────────────────────────────────────── */}
@@ -1282,10 +1633,22 @@ export function AdminCRM() {
           </div>
           <Input label="Telefone" placeholder="(11) 99999-9999" />
           <Select label="Origem" options={[
-            { value: 'manual', label: 'Manual' },
-            { value: 'social', label: 'Redes Sociais' },
+            { value: 'manual',    label: 'Manual' },
+            { value: 'checkout',  label: 'Checkout' },
+            { value: 'social',    label: 'Redes Sociais' },
             { value: 'indicacao', label: 'Indicação' },
-            { value: 'landing', label: 'Landing Page' },
+            { value: 'landing',   label: 'Landing Page' },
+          ]} />
+          <Select label="Etapa" options={[
+            { value: 'checkout_plano',        label: 'Checkout: Plano' },
+            { value: 'checkout_contato',      label: 'Checkout: Contato' },
+            { value: 'checkout_preferencias', label: 'Checkout: Preferências' },
+            { value: 'checkout_endereco',     label: 'Checkout: Endereço' },
+            { value: 'checkout_pagamento',    label: 'Checkout: Pagamento' },
+            { value: 'assinatura_concluida',  label: 'Assinatura Concluída' },
+            { value: 'interesse_reserva',     label: 'Interesse Reserva' },
+            { value: 'inadimplente',          label: 'Inadimplente' },
+            { value: 'perdido',               label: 'Perdido' },
           ]} />
           <Textarea label="Observações" placeholder="Observações sobre este lead..." rows={2} />
           <Button variant="primary" className="w-full">Salvar lead</Button>
