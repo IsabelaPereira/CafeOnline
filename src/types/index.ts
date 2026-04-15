@@ -59,6 +59,7 @@ export type LeadEtapa =
   | 'pagamento_invalido'
   | 'pagamento_pendente'
   | 'assinatura_concluida'
+  | 'carrinho-abandonado'
   | 'interesse_reserva'
   | 'cliente_ativo'
   | 'inadimplente'

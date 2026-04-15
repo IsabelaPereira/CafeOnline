@@ -563,20 +563,54 @@ export function AssinarPage() {
   useEffect(() => {
     if (!cancelado) return;
     const storedLead = sessionStorage.getItem('dsmatas_lead_id');
-    if (storedLead) {
-      const amanha = new Date();
-      amanha.setDate(amanha.getDate() + 1);
-      updateLeadCheckout(storedLead, {
-        etapa:           'checkout_pagamento',
-        tags:            ['carrinho-abandonado', 'potencial-assinante'],
-        observacoes:     'Retornou do Stripe sem concluir o pagamento.',
-        proximoFollowUp: amanha.toISOString().split('T')[0],
-      }).catch(() => {});
-      sessionStorage.removeItem('dsmatas_lead_id');
-      sessionStorage.removeItem('dsmatas_assinatura_id');
-    }
+    const storedAssinatura = sessionStorage.getItem('dsmatas_assinatura_id');
+
     setAlerta('Seu pagamento não foi concluído. Você pode tentar novamente quando quiser.');
     setStep('pagamento');
+
+    if (!storedLead) return;
+
+    // Após 15 min, verifica status da assinatura e atualiza o lead:
+    //  - Concluída (ativa)  → etapa carrinho-abandonado + tag CARRINHO-ABANDONADA
+    //  - Não concluída      → etapa carrinho-abandonado + tag carrinho-abandonado
+    // Em ambos os casos, próximo follow-up 20 min depois.
+    const ABANDON_MS = 15 * 60 * 1000;
+    const timer = window.setTimeout(async () => {
+      let foiConcluida = false;
+      try {
+        if (storedAssinatura) {
+          const { data } = await supabase
+            .from('assinaturas')
+            .select('status')
+            .eq('id', storedAssinatura)
+            .maybeSingle();
+          foiConcluida = (data as { status?: string } | null)?.status === 'ativa';
+        }
+      } catch { /* ignore — assume não concluída */ }
+
+      const proximoFollowUp = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+      if (foiConcluida) {
+        updateLeadCheckout(storedLead, {
+          etapa:           'carrinho-abandonado',
+          tags:            ['CARRINHO-ABANDONADA'],
+          observacoes:     'Cliente efetivou o pagamento da assinatura pelo site',
+          proximoFollowUp,
+        }).catch(() => {});
+      } else {
+        updateLeadCheckout(storedLead, {
+          etapa:           'carrinho-abandonado',
+          tags:            ['carrinho-abandonado'],
+          observacoes:     'Retornou do Stripe e não concluiu o pagamento em 15 min',
+          proximoFollowUp,
+        }).catch(() => {});
+      }
+
+      sessionStorage.removeItem('dsmatas_lead_id');
+      sessionStorage.removeItem('dsmatas_assinatura_id');
+    }, ABANDON_MS);
+
+    return () => window.clearTimeout(timer);
   }, [cancelado]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
