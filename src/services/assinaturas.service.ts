@@ -36,18 +36,33 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
     historicoAlteracoes: (r.alteracoes ?? []).map((a: any): AlteracaoAssinatura => ({
       id: a.id, tipo: a.tipo, de: a.de ?? undefined, para: a.para ?? undefined, data: a.data, usuario: a.usuario ?? '',
     })),
-    ciclos: (r.ciclos ?? []).map((c: any): CicloAssinatura => ({
-      id: c.id, mes: c.mes, ano: c.ano, edicaoId: c.edicao_id ?? undefined,
-      status: c.status as CicloAssinatura['status'],
-      codigoRastreio: c.codigo_rastreio ?? undefined, dataEnvio: c.data_envio ?? undefined, dataEntrega: c.data_entrega ?? undefined,
-      pedidoId: c.pedido_id ?? undefined, cobrancaId: c.cobranca_id ?? undefined,
-    })),
+    ciclos: (r.ciclos ?? [])
+      .sort((a: any, b: any) => a.ano !== b.ano ? b.ano - a.ano : b.mes - a.mes)
+      .map((c: any): CicloAssinatura => ({
+        id: c.id, mes: c.mes, ano: c.ano,
+        edicaoId:     c.edicao_id ?? undefined,
+        edicaoTitulo: c.edicao?.titulo ?? undefined,
+        status:       c.status as CicloAssinatura['status'],
+        codigoRastreio: c.codigo_rastreio ?? undefined,
+        dataEnvio:    c.data_envio ?? undefined,
+        dataEntrega:  c.data_entrega ?? undefined,
+        pedidoId:     c.pedido_id ?? undefined,
+        pedido:       c.pedido ? { numero: c.pedido.numero, status: c.pedido.status } : undefined,
+        cobrancaId:   c.cobranca_id ?? undefined,
+      })),
     createdAt: r.created_at,
   };
 }
 
 // Select completo — para admin (tem acesso a cobrancas e alteracoes)
-const BASE_SELECT = `*, plano:planos(*), endereco:enderecos(*), cobrancas:cobrancas_assinatura(*), alteracoes:alteracoes_assinatura(*), ciclos:ciclos_assinatura(*)`;
+const BASE_SELECT = [
+  '*',
+  'plano:planos(*)',
+  'endereco:enderecos(*)',
+  'cobrancas:cobrancas_assinatura(*)',
+  'alteracoes:alteracoes_assinatura(*)',
+  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id, edicao:edicoes_clube(id, titulo), pedido:pedidos(id, numero, status))',
+].join(', ');
 
 // Select para cliente — sem '*' para evitar bug do Supabase JS (stripping do primeiro item).
 // cobrancas_assinatura: SELECT liberado pela policy "cob_own" (migration 006)
@@ -122,8 +137,9 @@ export async function getAssinaturasCliente(clienteId: string): Promise<Assinatu
 export async function getAssinatura(id: string): Promise<Assinatura | null> {
   const { data, error } = await supabase.from('assinaturas').select(BASE_SELECT).eq('id', id).single();
   if (error) return null;
-  const clienteMap = await resolverClienteInfo([data.cliente_id]);
-  return mapAssinatura(data, clienteMap.get(data.cliente_id));
+  const row = data as any;
+  const clienteMap = await resolverClienteInfo([row.cliente_id]);
+  return mapAssinatura(row, clienteMap.get(row.cliente_id));
 }
 
 export async function createAssinatura(a: {

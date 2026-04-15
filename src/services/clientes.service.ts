@@ -141,6 +141,34 @@ export async function definirEnderecoPadrao(id: string, clienteId: string): Prom
   if (error) throw error;
 }
 
+export async function updateCliente(
+  id: string,
+  userId: string,
+  patch: {
+    name?: string;
+    phone?: string;
+    cpf?: string;
+    birthdate?: string;
+    preferenciaCafe?: 'grao' | 'moido';
+    tipoMoagem?: string;
+  },
+): Promise<void> {
+  const clientePatch: Record<string, unknown> = {};
+  if (patch.phone !== undefined)           clientePatch.phone            = patch.phone || null;
+  if (patch.cpf !== undefined)             clientePatch.cpf              = patch.cpf || null;
+  if (patch.birthdate !== undefined)       clientePatch.birthdate        = patch.birthdate || null;
+  if (patch.preferenciaCafe !== undefined) clientePatch.preferencia_cafe = patch.preferenciaCafe;
+  if (patch.tipoMoagem !== undefined)      clientePatch.tipo_moagem      = patch.tipoMoagem || null;
+  if (Object.keys(clientePatch).length > 0) {
+    const { error } = await supabase.from('clientes').update(clientePatch).eq('id', id);
+    if (error) throw error;
+  }
+  if (patch.name?.trim() && userId) {
+    const { error } = await supabase.from('profiles').update({ name: patch.name.trim() }).eq('id', userId);
+    if (error) throw error;
+  }
+}
+
 export async function updateClienteStripeCustomerId(clienteId: string, stripeCustomerId: string): Promise<void> {
   const { error } = await supabase
     .from('clientes')

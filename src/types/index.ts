@@ -159,11 +159,13 @@ export interface CicloAssinatura {
   mes: number;
   ano: number;
   edicaoId?: string;
+  edicaoTitulo?: string;
   status: 'pendente' | 'enviado' | 'entregue';
   codigoRastreio?: string;
   dataEnvio?: string;
   dataEntrega?: string;
   pedidoId?: string;
+  pedido?: { numero: string; status: string };
   cobrancaId?: string;
 }
 

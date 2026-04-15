@@ -855,6 +855,65 @@ export function AdminAssinaturas() {
               ))}
             </div>
 
+            {/* Ciclos / Edições e pedidos */}
+            {selected.ciclos.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Edições e pedidos</p>
+                <div className="space-y-2">
+                  {selected.ciclos.map(ciclo => {
+                    const cicloStatusVariant: Record<string, string> = {
+                      pendente: 'bg-amber-50 text-amber-700 border-amber-200',
+                      enviado:  'bg-blue-50 text-blue-700 border-blue-200',
+                      entregue: 'bg-forest-50 text-forest-700 border-forest-200',
+                    };
+                    const pedidoStatusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
+                      pago: 'pending', em_separacao: 'gold', enviado: 'gold',
+                      entregue: 'active', cancelado: 'cancelled', reembolsado: 'inactive',
+                    };
+                    return (
+                      <div key={ciclo.id} className="flex flex-wrap items-start gap-3 py-2.5 border-b border-cream-100 last:border-0">
+                        {/* Período */}
+                        <div className="w-20 shrink-0">
+                          <p className="text-sm font-medium text-charcoal-700">
+                            {String(ciclo.mes).padStart(2, '0')}/{ciclo.ano}
+                          </p>
+                          <span className={`mt-0.5 inline-block px-1.5 py-0.5 text-xs rounded border ${cicloStatusVariant[ciclo.status] ?? ''}`}>
+                            {ciclo.status}
+                          </span>
+                        </div>
+
+                        {/* Edição */}
+                        <div className="flex-1 min-w-0">
+                          {ciclo.edicaoTitulo ? (
+                            <p className="text-sm text-charcoal-600 truncate">{ciclo.edicaoTitulo}</p>
+                          ) : (
+                            <p className="text-xs text-charcoal-300 italic">Sem edição associada</p>
+                          )}
+                          {ciclo.codigoRastreio && (
+                            <p className="text-xs text-charcoal-400 font-mono mt-0.5">{ciclo.codigoRastreio}</p>
+                          )}
+                        </div>
+
+                        {/* Pedido */}
+                        <div className="text-right shrink-0">
+                          {ciclo.pedido ? (
+                            <>
+                              <p className="text-xs font-medium text-charcoal-600">{ciclo.pedido.numero}</p>
+                              <Badge variant={pedidoStatusVariant[ciclo.pedido.status] ?? 'inactive'}>
+                                {ciclo.pedido.status}
+                              </Badge>
+                            </>
+                          ) : (
+                            <span className="text-xs text-charcoal-300">Sem pedido</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Histórico de cobranças */}
             <div>
               <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Histórico de cobranças</p>
@@ -1015,6 +1074,131 @@ export function AdminAssinaturas() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ── Modal — Alterar Preferência ─────────────────────────────────────── */}
+      <Modal
+        open={editandoPreferencia && !!selected}
+        onClose={() => setEditandoPreferencia(false)}
+        title="Alterar Preferência de Café"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-charcoal-600 mb-1.5">Tipo de café</label>
+            <select
+              value={formPreferencia.preferenciaCafe}
+              onChange={e => setFormPreferencia(p => ({ ...p, preferenciaCafe: e.target.value as 'grao' | 'moido', tipoMoagem: '' }))}
+              className="w-full px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+            >
+              <option value="grao">Grão inteiro</option>
+              <option value="moido">Moído</option>
+            </select>
+          </div>
+
+          {formPreferencia.preferenciaCafe === 'moido' && (
+            <div>
+              <label className="block text-sm font-medium text-charcoal-600 mb-1.5">Tipo de moagem</label>
+              <select
+                value={formPreferencia.tipoMoagem}
+                onChange={e => setFormPreferencia(p => ({ ...p, tipoMoagem: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              >
+                <option value="">Selecione…</option>
+                <option value="fino">Fino (espresso)</option>
+                <option value="medio">Médio (coado/aeropress)</option>
+                <option value="grosso">Grosso (prensa francesa)</option>
+                <option value="extraGrosso">Extra grosso (cold brew)</option>
+              </select>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+            <Button variant="ghost" onClick={() => setEditandoPreferencia(false)}>Cancelar</Button>
+            <Button
+              variant="primary"
+              loading={salvandoPreferencia}
+              icon={<Coffee size={14} />}
+              onClick={handleSalvarPreferencia}
+            >
+              Salvar preferência
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal — Gerar Pedido Manual ─────────────────────────────────────── */}
+      <Modal
+        open={criandoPedidoManual && !!selected}
+        onClose={() => setCriandoPedidoManual(false)}
+        title="Gerar Pedido Manual"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-charcoal-500">
+            Cria um pedido de assinatura para o período informado, caso o pedido automático não tenha sido gerado.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-charcoal-600 mb-1.5">Mês *</label>
+              <select
+                value={formPedidoManual.mes}
+                onChange={e => setFormPedidoManual(p => ({ ...p, mes: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              >
+                {[
+                  ['1','Janeiro'],['2','Fevereiro'],['3','Março'],['4','Abril'],
+                  ['5','Maio'],['6','Junho'],['7','Julho'],['8','Agosto'],
+                  ['9','Setembro'],['10','Outubro'],['11','Novembro'],['12','Dezembro'],
+                ].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <Input
+              label="Ano *"
+              type="number"
+              value={formPedidoManual.ano}
+              onChange={e => setFormPedidoManual(p => ({ ...p, ano: e.target.value }))}
+              placeholder="2026"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-charcoal-600 mb-1.5">
+              Edição do clube <span className="text-charcoal-400 font-normal">(opcional)</span>
+            </label>
+            <select
+              value={formPedidoManual.edicaoId}
+              onChange={e => setFormPedidoManual(p => ({ ...p, edicaoId: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+            >
+              <option value="">Nenhuma edição associada</option>
+              {edicoes.map(ed => (
+                <option key={ed.id} value={ed.id}>
+                  {ed.titulo} ({String(ed.mes).padStart(2,'0')}/{ed.ano})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selected && (
+            <div className="p-3 bg-cream-50 rounded-sm text-sm text-charcoal-600 space-y-1">
+              <p><span className="text-charcoal-400">Assinante:</span> {selected.clienteNome ?? '—'}</p>
+              <p><span className="text-charcoal-400">Valor:</span> R$ {selected.totalMensal.toFixed(2)}</p>
+              <p><span className="text-charcoal-400">Plano:</span> {selected.plano.nome}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+            <Button variant="ghost" onClick={() => setCriandoPedidoManual(false)}>Cancelar</Button>
+            <Button
+              variant="primary"
+              loading={salvandoPedidoManual}
+              icon={<Package size={14} />}
+              onClick={handleCriarPedidoManual}
+            >
+              Criar pedido
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

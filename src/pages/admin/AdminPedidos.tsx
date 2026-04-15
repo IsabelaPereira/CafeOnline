@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, Package, Truck, Check, X, Plus, Trash2, Search, Tag, ExternalLink, AlertCircle } from 'lucide-react';
+import { Eye, Package, Truck, Check, X, Plus, Trash2, Search, Tag, ExternalLink, AlertCircle, RefreshCw, Link2 } from 'lucide-react';
 import {
   Card, Badge, SearchBar, FilterBar, Select, Pagination,
   Modal, Button, SectionHeader, Input,
 } from '../../components/ui';
 import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, buscarClientePorEmail, gerarEtiqueta } from '../../services/pedidos.service';
-import type { Pedido, Endereco } from '../../types';
+import { getAssinatura } from '../../services/assinaturas.service';
+import type { Pedido, Endereco, Assinatura } from '../../types';
 
 const statusOptions = [
   { value: '', label: 'Todos os status' },
@@ -34,6 +35,8 @@ export function AdminPedidos() {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Pedido | null>(null);
+  const [assDetalhe, setAssDetalhe] = useState<Assinatura | null>(null);
+  const [carregandoAss, setCarregandoAss] = useState(false);
   const [rastreio, setRastreio] = useState('');
   const [salvandoRastreio, setSalvandoRastreio] = useState(false);
   const [gerandoEtiqueta, setGerandoEtiqueta] = useState(false);
@@ -58,6 +61,21 @@ export function AdminPedidos() {
   useEffect(() => {
     getPedidos().then(setPedidos).catch(console.error);
   }, []);
+
+  async function abrirPedido(p: Pedido) {
+    setSelected(p);
+    setRastreio(p.codigoRastreio ?? '');
+    setErroEtiqueta('');
+    setAssDetalhe(null);
+    if (p.assinaturaId) {
+      setCarregandoAss(true);
+      try {
+        const ass = await getAssinatura(p.assinaturaId);
+        setAssDetalhe(ass);
+      } catch { /* silencia */ }
+      finally { setCarregandoAss(false); }
+    }
+  }
 
   const filtered = pedidos.filter(p =>
     (search === '' || p.numero.toLowerCase().includes(search.toLowerCase()) ||
@@ -228,7 +246,7 @@ export function AdminPedidos() {
                   </td>
                 </tr>
               ) : paginated.map(p => (
-                <tr key={p.id} className="border-t border-cream-100 hover:bg-cream-50 transition-colors cursor-pointer" onClick={() => { setSelected(p); setRastreio(p.codigoRastreio ?? ''); setErroEtiqueta(''); }}>
+                <tr key={p.id} className="border-t border-cream-100 hover:bg-cream-50 transition-colors cursor-pointer" onClick={() => abrirPedido(p)}>
                   <td className="table-td font-medium text-charcoal-700">{p.numero}</td>
                   <td className="table-td">
                     <p className="text-sm text-charcoal-700">{p.cliente?.name ?? '—'}</p>
@@ -404,7 +422,7 @@ export function AdminPedidos() {
       </Modal>
 
       {/* ── Modal — Detalhe do pedido ────────────────────────────────────────── */}
-      <Modal open={!!selected} onClose={() => setSelected(null)} title={`Pedido ${selected?.numero}`} size="xl">
+      <Modal open={!!selected} onClose={() => { setSelected(null); setAssDetalhe(null); }} title={`Pedido ${selected?.numero}`} size="xl">
         {selected && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -420,6 +438,42 @@ export function AdminPedidos() {
                 </div>
               ))}
             </div>
+
+            {/* Origem: assinatura */}
+            {selected.tipo === 'assinatura' && (
+              <div className="rounded-sm border border-forest-200 bg-forest-50 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Link2 size={14} className="text-forest-600" />
+                  <p className="text-xs font-medium text-forest-700 uppercase tracking-wider">Pedido de assinatura</p>
+                  {carregandoAss && <RefreshCw size={12} className="text-forest-400 animate-spin ml-auto" />}
+                </div>
+
+                {assDetalhe ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {[
+                      { label: 'Assinante',   value: assDetalhe.clienteNome ?? '—' },
+                      { label: 'Plano',       value: assDetalhe.plano.nome },
+                      { label: 'Status',      value: <Badge variant={({ ativa:'active', pendente:'pending', inadimplente:'cancelled', cancelada:'inactive', pausada:'inactive' } as Record<string,'active'|'pending'|'cancelled'|'inactive'>)[assDetalhe.status] ?? 'inactive'}>{assDetalhe.status}</Badge> },
+                      { label: 'Preferência', value: assDetalhe.preferenciaCafe === 'grao' ? 'Grão' : `Moído (${assDetalhe.tipoMoagem ?? '—'})` },
+                      { label: 'Próx. cobrança', value: new Date(assDetalhe.proximaCobranca).toLocaleDateString('pt-BR') },
+                      ...(selected.cicloId ? [{ label: 'Ciclo', value: (() => {
+                        const ciclo = assDetalhe.ciclos.find(c => c.id === selected.cicloId);
+                        return ciclo ? `${String(ciclo.mes).padStart(2,'0')}/${ciclo.ano}` : '—';
+                      })() }] : []),
+                    ].map(info => (
+                      <div key={info.label} className="bg-white/70 rounded-sm p-2.5">
+                        <p className="text-xs text-forest-600 mb-0.5">{info.label}</p>
+                        <div className="text-sm font-medium text-charcoal-700">{info.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : !carregandoAss && (
+                  <p className="text-sm text-forest-600">
+                    ID da assinatura: <span className="font-mono text-xs">{selected.assinaturaId}</span>
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Itens */}
             <div>
