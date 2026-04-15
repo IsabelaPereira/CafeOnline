@@ -10,8 +10,8 @@ import {
   Card, Button, Modal, Input, Select, Textarea, SectionHeader,
   SearchBar, Tabs, Pagination,
 } from '../../components/ui';
-import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem, updateLeadEtapa, addInteracao } from '../../services/leads.service';
-import { getClientes, updateCliente } from '../../services/clientes.service';
+import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem, updateLeadEtapa, addInteracao, updateLeadClienteId } from '../../services/leads.service';
+import { getClientes, updateCliente, createClienteFromLead, createEndereco } from '../../services/clientes.service';
 import { getPedidos } from '../../services/pedidos.service';
 import { getAssinaturasCliente } from '../../services/assinaturas.service';
 import { getReservasCliente } from '../../services/reservas.service';
@@ -198,6 +198,51 @@ export function AdminCRM() {
 
   // ── Atualização de etapa ───────────────────────────────────────────────────
   const [atualizandoEtapa, setAtualizandoEtapa] = useState<string | null>(null);
+
+  // ── Converter em cliente ───────────────────────────────────────────────────
+  const [converterModal, setConverterModal] = useState(false);
+  const [salvandoConverte, setSalvandoConverte] = useState(false);
+  const [formConverte, setFormConverte] = useState({
+    nome: '', email: '', telefone: '', cpf: '', birthdate: '',
+    preferenciaCafe: 'grao' as 'grao' | 'moido', tipoMoagem: '',
+    // endereço
+    cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '',
+  });
+
+  async function handleConverterEmCliente() {
+    if (!selectedLead) return;
+    setSalvandoConverte(true);
+    try {
+      const clienteId = await createClienteFromLead({
+        nome:            formConverte.nome.trim(),
+        email:           formConverte.email.trim(),
+        phone:           formConverte.telefone,
+        cpf:             formConverte.cpf,
+        birthdate:       formConverte.birthdate || undefined,
+        preferenciaCafe: formConverte.preferenciaCafe,
+        tipoMoagem:      formConverte.preferenciaCafe === 'moido' ? formConverte.tipoMoagem : undefined,
+      });
+      if (formConverte.cep && formConverte.logradouro) {
+        await createEndereco(clienteId, {
+          cep: formConverte.cep, logradouro: formConverte.logradouro,
+          numero: formConverte.numero, complemento: formConverte.complemento || undefined,
+          bairro: formConverte.bairro, cidade: formConverte.cidade, estado: formConverte.estado,
+          padrao: true,
+        });
+      }
+      await updateLeadClienteId(selectedLead.id, clienteId);
+      await handleAtualizarEtapaLead(selectedLead.id, 'cliente_ativo' as LeadEtapa);
+      setLeads(prev => prev.map(l => l.id === selectedLead.id ? { ...l, clienteId } : l));
+      setSelectedLead(prev => prev ? { ...prev, clienteId } : prev);
+      const novosClientes = await getClientes();
+      setClientes(novosClientes);
+      setConverterModal(false);
+    } catch (err: any) {
+      alert(`Erro ao converter: ${err?.message ?? 'tente novamente.'}`);
+    } finally {
+      setSalvandoConverte(false);
+    }
+  }
 
   // ── Nova interação ─────────────────────────────────────────────────────────
   const [novaInteracaoModal, setNovaInteracaoModal] = useState(false);
@@ -1135,7 +1180,19 @@ export function AdminCRM() {
                   <Plus size={14} />Nova interação
                 </Button>
                 <Button variant="secondary" size="sm"><Mail size={14} />Enviar e-mail</Button>
-                {!selectedLead.clienteId && <Button variant="ghost" size="sm"><ArrowRight size={14} />Converter em cliente</Button>}
+                {!selectedLead.clienteId && (
+                  <Button variant="ghost" size="sm" onClick={() => {
+                    setFormConverte({
+                      nome: selectedLead.nome, email: selectedLead.email,
+                      telefone: selectedLead.telefone ?? '',
+                      cpf: '', birthdate: '', preferenciaCafe: 'grao', tipoMoagem: '',
+                      cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '',
+                    });
+                    setConverterModal(true);
+                  }}>
+                    <ArrowRight size={14} />Converter em cliente
+                  </Button>
+                )}
               </div>
             </div>
           );
@@ -1175,6 +1232,79 @@ export function AdminCRM() {
               >
                 {salvandoInter ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 Salvar interação
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Modal converter em cliente ────────────────────────────────────── */}
+      <Modal open={converterModal} onClose={() => setConverterModal(false)} title="Converter em Cliente" size="lg">
+        {selectedLead && (
+          <div className="space-y-5">
+
+            {/* Dados pessoais */}
+            <div>
+              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Dados pessoais</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Nome *" value={formConverte.nome} onChange={e => setFormConverte(p => ({ ...p, nome: e.target.value }))} placeholder="Nome completo" />
+                <Input label="E-mail *" value={formConverte.email} onChange={e => setFormConverte(p => ({ ...p, email: e.target.value }))} placeholder="email@exemplo.com" />
+                <Input label="Telefone" value={formConverte.telefone} onChange={e => setFormConverte(p => ({ ...p, telefone: e.target.value }))} placeholder="(11) 99999-9999" />
+                <Input label="CPF" value={formConverte.cpf} onChange={e => setFormConverte(p => ({ ...p, cpf: e.target.value }))} placeholder="000.000.000-00" />
+                <Input label="Data de nascimento" type="date" value={formConverte.birthdate} onChange={e => setFormConverte(p => ({ ...p, birthdate: e.target.value }))} />
+              </div>
+            </div>
+
+            {/* Preferência de café */}
+            <div>
+              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Preferência de café</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  label="Tipo de café"
+                  value={formConverte.preferenciaCafe}
+                  onChange={e => setFormConverte(p => ({ ...p, preferenciaCafe: e.target.value as 'grao' | 'moido', tipoMoagem: '' }))}
+                  options={[{ value: 'grao', label: 'Grão' }, { value: 'moido', label: 'Moído' }]}
+                />
+                {formConverte.preferenciaCafe === 'moido' && (
+                  <Select
+                    label="Tipo de moagem"
+                    value={formConverte.tipoMoagem}
+                    onChange={e => setFormConverte(p => ({ ...p, tipoMoagem: e.target.value }))}
+                    options={[
+                      { value: 'fino',       label: 'Fino' },
+                      { value: 'medio',      label: 'Médio' },
+                      { value: 'grosso',     label: 'Grosso' },
+                      { value: 'extraGrosso', label: 'Extra Grosso' },
+                    ]}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Endereço */}
+            <div>
+              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Endereço <span className="normal-case font-normal text-charcoal-300">(opcional)</span></p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="CEP" value={formConverte.cep} onChange={e => setFormConverte(p => ({ ...p, cep: e.target.value }))} placeholder="00000-000" />
+                <Input label="Logradouro" value={formConverte.logradouro} onChange={e => setFormConverte(p => ({ ...p, logradouro: e.target.value }))} placeholder="Rua, Av..." />
+                <Input label="Número" value={formConverte.numero} onChange={e => setFormConverte(p => ({ ...p, numero: e.target.value }))} placeholder="123" />
+                <Input label="Complemento" value={formConverte.complemento} onChange={e => setFormConverte(p => ({ ...p, complemento: e.target.value }))} placeholder="Apto, Bloco..." />
+                <Input label="Bairro" value={formConverte.bairro} onChange={e => setFormConverte(p => ({ ...p, bairro: e.target.value }))} placeholder="Bairro" />
+                <Input label="Cidade" value={formConverte.cidade} onChange={e => setFormConverte(p => ({ ...p, cidade: e.target.value }))} placeholder="Cidade" />
+                <Input label="Estado" value={formConverte.estado} onChange={e => setFormConverte(p => ({ ...p, estado: e.target.value }))} placeholder="UF" />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-1 border-t border-cream-200">
+              <Button variant="ghost" size="sm" onClick={() => setConverterModal(false)}>Cancelar</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleConverterEmCliente}
+                disabled={salvandoConverte || !formConverte.nome.trim() || !formConverte.email.trim()}
+              >
+                {salvandoConverte ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                Converter em cliente
               </Button>
             </div>
           </div>

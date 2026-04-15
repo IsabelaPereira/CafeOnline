@@ -81,6 +81,13 @@ export async function getLead(id: string): Promise<Lead | null> {
   return mapLead(data);
 }
 
+export async function getLeadByEmail(email: string): Promise<Lead | null> {
+  const { data, error } = await supabase
+    .from('leads').select(LEAD_SELECT).eq('email', email).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (error || !data) return null;
+  return mapLead(data);
+}
+
 export async function createLead(l: { nome: string; email: string; telefone?: string; origem?: Lead['origem']; interesse?: string; planoDesejado?: string }): Promise<Lead> {
   const { data: existing } = await supabase.from('leads').select('id').eq('email', l.email).maybeSingle();
   if (existing) return getLead(existing.id) as Promise<Lead>;
@@ -156,6 +163,11 @@ export async function addInteracao(leadId: string, tipo: InteracaoCRM['tipo'], d
   const { error } = await supabase.from('interacoes_crm').insert({ lead_id: leadId, tipo, descricao, usuario });
   if (error) throw error;
   await supabase.from('leads').update({ ultimo_contato: new Date().toISOString().split('T')[0] }).eq('id', leadId);
+}
+
+export async function updateLeadClienteId(leadId: string, clienteId: string): Promise<void> {
+  const { error } = await supabase.from('leads').update({ cliente_id: clienteId }).eq('id', leadId);
+  if (error) throw error;
 }
 
 export async function deleteLead(id: string): Promise<void> {

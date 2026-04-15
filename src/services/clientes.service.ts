@@ -8,7 +8,7 @@ function mapEndereco(r: any): Endereco {
 function mapCliente(r: any): Cliente {
   return {
     id: r.id, userId: r.user_id ?? '',
-    name: r.profile?.name ?? '', email: r.profile?.email ?? '',
+    name: r.profile?.name ?? r.nome ?? '', email: r.profile?.email ?? r.email ?? '',
     phone: r.phone ?? '', cpf: r.cpf ?? undefined, birthdate: r.birthdate ?? undefined,
     preferenciaCafe: r.preferencia_cafe as 'grao' | 'moido',
     tipoMoagem: r.tipo_moagem ?? undefined,
@@ -23,7 +23,7 @@ function mapCliente(r: any): Cliente {
 
 // Colunas base sem embedded joins — evita bug do Supabase JS que remove o primeiro
 // item do select quando há embedded resources (enderecos, profiles).
-const BASE_COLS = 'phone, id, user_id, cpf, birthdate, preferencia_cafe, tipo_moagem, created_at';
+const BASE_COLS = 'phone, id, user_id, cpf, birthdate, preferencia_cafe, tipo_moagem, nome, email, created_at';
 
 /** Busca cliente + endereços em queries separadas para evitar bug do Supabase JS. */
 async function fetchClienteComEnderecos(row: any): Promise<Cliente> {
@@ -40,7 +40,7 @@ export async function getClientes(): Promise<Cliente[]> {
   // Para listagem admin: usa join de profiles (panel admin já rodou as migrations)
   const { data, error } = await supabase
     .from('clientes')
-    .select('phone, id, user_id, cpf, birthdate, preferencia_cafe, tipo_moagem, created_at, profile:profiles(name, email), enderecos(*)')
+    .select('phone, id, user_id, cpf, birthdate, preferencia_cafe, tipo_moagem, nome, email, created_at, profile:profiles(name, email), enderecos(*)')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []).map(mapCliente);
@@ -167,6 +167,34 @@ export async function updateCliente(
     const { error } = await supabase.from('profiles').update({ name: patch.name.trim() }).eq('id', userId);
     if (error) throw error;
   }
+}
+
+/**
+ * Cria um cliente a partir de um lead convertido manualmente pelo admin.
+ * Não requer conta de autenticação (user_id = null).
+ * Nome e e-mail são guardados nas colunas fallback da tabela clientes.
+ */
+export async function createClienteFromLead(c: {
+  nome: string;
+  email: string;
+  phone?: string;
+  cpf?: string;
+  birthdate?: string;
+  preferenciaCafe: 'grao' | 'moido';
+  tipoMoagem?: string;
+}): Promise<string> {
+  const { data, error } = await supabase.from('clientes').insert({
+    user_id:          null,
+    nome:             c.nome,
+    email:            c.email,
+    phone:            c.phone   || null,
+    cpf:              c.cpf     || null,
+    birthdate:        c.birthdate || null,
+    preferencia_cafe: c.preferenciaCafe,
+    tipo_moagem:      c.tipoMoagem || null,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
 export async function updateClienteStripeCustomerId(clienteId: string, stripeCustomerId: string): Promise<void> {

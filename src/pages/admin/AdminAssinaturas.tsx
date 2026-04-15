@@ -1,13 +1,35 @@
 import { useEffect, useState, useRef } from 'react';
-import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus, Pause, Play, XCircle, RotateCcw, CreditCard, Calendar, SlidersHorizontal, Columns2, X, ChevronDown, Coffee, Package } from 'lucide-react';
+import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus, Pause, Play, XCircle, RotateCcw, CreditCard, Calendar, SlidersHorizontal, Columns2, X, ChevronDown, Coffee, Package, TrendingUp, ArrowRight, Tag, Loader2, Mail, MessageSquare, Phone, FileText } from 'lucide-react';
 import {
   Card, Badge, SearchBar, Pagination,
   Modal, Button, SectionHeader, StatCard, Tabs, Input
 } from '../../components/ui';
 import { getAssinaturas, getPlanos, updatePlano, createPlano, manageAssinatura, updatePreferenciaAssinatura, criarPedidoManualAssinatura } from '../../services/assinaturas.service';
 import { getEdicoes } from '../../services/edicoes.service';
+import { getLeadByEmail, getHistoricoEtapaLead } from '../../services/leads.service';
 import { supabase } from '../../lib/supabase';
-import type { Assinatura, PlanoAssinatura, EdicaoClube } from '../../types';
+import type { Assinatura, PlanoAssinatura, EdicaoClube, Lead, LeadEtapa, HistoricoEtapaLead } from '../../types';
+
+// ── Mapa de etapas (labels + cores) ──────────────────────────────────────────
+const ETAPAS_MAP: Record<string, { label: string; color: string }> = {
+  novo:                   { label: 'Novo Lead',              color: 'bg-blue-100 text-blue-700 border-blue-200'        },
+  interesse_assinatura:   { label: 'Interesse Assinatura',   color: 'bg-gold-100 text-gold-700 border-gold-200'        },
+  checkout_plano:         { label: 'Checkout: Plano',        color: 'bg-amber-100 text-amber-700 border-amber-200'     },
+  checkout_contato:       { label: 'Checkout: Contato',      color: 'bg-amber-100 text-amber-700 border-amber-200'     },
+  checkout_preferencias:  { label: 'Checkout: Preferências', color: 'bg-amber-100 text-amber-700 border-amber-200'     },
+  checkout_endereco:      { label: 'Checkout: Endereço',     color: 'bg-amber-100 text-amber-700 border-amber-200'     },
+  checkout_pagamento:     { label: 'Checkout: Pagamento',    color: 'bg-orange-100 text-orange-700 border-orange-200'  },
+  checkout_iniciado:      { label: 'Checkout Iniciado',      color: 'bg-orange-100 text-orange-700 border-orange-200'  },
+  pagamento_iniciado:     { label: 'Pagamento Iniciado',     color: 'bg-orange-100 text-orange-700 border-orange-200'  },
+  pagamento_invalido:     { label: 'Pagamento Inválido',     color: 'bg-red-100 text-red-700 border-red-200'           },
+  pagamento_pendente:     { label: 'Pagamento Pendente',     color: 'bg-yellow-100 text-yellow-700 border-yellow-200'  },
+  assinatura_concluida:   { label: 'Assinatura Concluída',   color: 'bg-forest-100 text-forest-700 border-forest-200'  },
+  interesse_reserva:      { label: 'Interesse Reserva',      color: 'bg-purple-100 text-purple-700 border-purple-200'  },
+  cliente_ativo:          { label: 'Cliente Ativo',          color: 'bg-forest-100 text-forest-700 border-forest-200'  },
+  inadimplente:           { label: 'Inadimplente',           color: 'bg-red-100 text-red-700 border-red-200'           },
+  recuperacao:            { label: 'Recuperação',            color: 'bg-yellow-100 text-yellow-700 border-yellow-200'  },
+  perdido:                { label: 'Perdido',                color: 'bg-charcoal-100 text-charcoal-600 border-charcoal-200' },
+};
 
 const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive'> = {
   ativa: 'active', pendente: 'pending', inadimplente: 'cancelled', cancelada: 'inactive', pausada: 'inactive',
@@ -127,6 +149,12 @@ export function AdminAssinaturas() {
   const [edicoes, setEdicoes] = useState<EdicaoClube[]>([]);
   const [formPedidoManual, setFormPedidoManual] = useState({ mes: String(new Date().getMonth() + 1), ano: String(new Date().getFullYear()), edicaoId: '' });
   const [salvandoPedidoManual, setSalvandoPedidoManual] = useState(false);
+  // ── Aba do detalhe da assinatura ──────────────────────────────────────────
+  const [assDetalheTab, setAssDetalheTab] = useState<'assinatura' | 'lead'>('assinatura');
+  const [assLead, setAssLead]             = useState<Lead | null>(null);
+  const [assLeadHist, setAssLeadHist]     = useState<HistoricoEtapaLead[]>([]);
+  const [assLeadLoading, setAssLeadLoading] = useState(false);
+
   const [filtrosAtivos, setFiltrosAtivos] = useState<FiltroAtivo[]>([]);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [mostrarColunas, setMostrarColunas] = useState(false);
@@ -199,6 +227,23 @@ export function AdminAssinaturas() {
       setSalvandoPlano(false);
     }
   }
+
+  // Busca o lead ao abrir o modal de assinatura
+  useEffect(() => {
+    if (!selected) { setAssLead(null); setAssLeadHist([]); setAssDetalheTab('assinatura'); return; }
+    const email = selected.clienteEmail;
+    if (!email) return;
+    setAssLeadLoading(true);
+    getLeadByEmail(email)
+      .then(async lead => {
+        setAssLead(lead);
+        if (lead) {
+          const hist = await getHistoricoEtapaLead(lead.id).catch(() => []);
+          setAssLeadHist(hist);
+        }
+      })
+      .finally(() => setAssLeadLoading(false));
+  }, [selected?.id]);
 
   async function handleReprocessar(assinaturaId: string) {
     setReprocessando(assinaturaId);
@@ -830,6 +875,199 @@ export function AdminAssinaturas() {
       >
         {selected && (
           <div className="space-y-5">
+
+            {/* ── Abas ── */}
+            <div className="flex gap-1 border-b border-cream-200 pb-1 -mt-1">
+              {[
+                { id: 'assinatura', label: 'Assinatura' },
+                { id: 'lead',       label: 'Lead', badge: assLead ? assLead.etapa : undefined },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setAssDetalheTab(t.id as 'assinatura' | 'lead')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-sm font-medium transition-colors ${
+                    assDetalheTab === t.id ? 'bg-forest-500 text-white' : 'text-charcoal-500 hover:bg-cream-100'
+                  }`}
+                >
+                  {t.label}
+                  {t.badge && (
+                    <span className={`text-[10px] rounded-full px-1.5 py-0 font-bold ${assDetalheTab === t.id ? 'bg-white/30 text-white' : 'bg-cream-200 text-charcoal-500'}`}>
+                      {ETAPAS_MAP[t.badge]?.label ?? t.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* ── Aba: Lead ── */}
+            {assDetalheTab === 'lead' && (
+              assLeadLoading ? (
+                <div className="flex items-center gap-2 py-6 text-charcoal-400 text-sm">
+                  <Loader2 size={16} className="animate-spin" /> Carregando lead…
+                </div>
+              ) : !assLead ? (
+                <p className="text-sm text-charcoal-400 py-4">Nenhum lead encontrado para o e-mail <strong>{selected.clienteEmail}</strong>.</p>
+              ) : (() => {
+                const etapa = ETAPAS_MAP[assLead.etapa];
+                return (
+                  <div className="space-y-4">
+                    {/* Dados */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { label: 'E-mail',            value: assLead.email },
+                        { label: 'Telefone',          value: assLead.telefone || '—' },
+                        { label: 'Origem',            value: assLead.origem },
+                        { label: 'Interesse',         value: assLead.interesse || '—' },
+                        { label: 'Plano desejado',    value: assLead.planoDesejado || '—' },
+                        { label: 'Lead desde',        value: new Date(assLead.createdAt).toLocaleDateString('pt-BR') },
+                        { label: 'Último contato',    value: assLead.ultimoContato ? new Date(assLead.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR') : '—' },
+                        { label: 'Próximo follow-up', value: assLead.proximoFollowUp ? new Date(assLead.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR') : '—' },
+                      ].map(info => (
+                        <div key={info.label} className="bg-cream-50 rounded-sm p-3">
+                          <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>
+                          <p className="text-sm font-medium text-charcoal-700">{info.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Etapa */}
+                    {etapa && (
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider">Etapa:</p>
+                        <span className={`px-2 py-0.5 text-xs rounded border font-medium ${etapa.color}`}>{etapa.label}</span>
+                      </div>
+                    )}
+                    {/* Tags */}
+                    {assLead.tags.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Tags</p>
+                        <div className="flex flex-wrap gap-2">
+                          {assLead.tags.map(tag => (
+                            <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-cream-100 border border-cream-200 text-xs text-charcoal-600 rounded-full">
+                              <Tag size={10} />{tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Observações */}
+                    {assLead.observacoes && (
+                      <div>
+                        <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Observações</p>
+                        <p className="text-sm text-charcoal-600 bg-cream-50 rounded-sm p-3">{assLead.observacoes}</p>
+                      </div>
+                    )}
+                    {/* Histórico de etapas */}
+                    <div className="border-t border-cream-200 pt-4">
+                      <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">
+                        Histórico de etapas no funil
+                        {assLeadHist.length > 0 && (
+                          <span className="ml-1.5 text-[10px] bg-cream-200 text-charcoal-500 rounded-full px-1.5 py-0.5">{assLeadHist.length}</span>
+                        )}
+                      </p>
+                      {assLeadHist.length === 0 ? (
+                        <p className="text-xs text-charcoal-300 italic">Nenhuma alteração de etapa registrada.</p>
+                      ) : (
+                        <div className="relative max-h-80 overflow-y-auto pr-1">
+                          <div className="absolute left-[13px] top-0 bottom-0 w-px bg-cream-300" />
+                          <div className="space-y-0">
+                            {assLeadHist.map((h, idx) => {
+                              const etAnterior = ETAPAS_MAP[h.etapaAnterior ?? ''];
+                              const etNova     = ETAPAS_MAP[h.etapaNova];
+                              const isLast     = idx === assLeadHist.length - 1;
+                              return (
+                                <div key={h.id} className="flex gap-3">
+                                  <div className={`relative z-10 w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1 border-2 ${isLast ? 'bg-forest-500 border-forest-500' : 'bg-white border-cream-300'}`}>
+                                    <TrendingUp size={11} className={isLast ? 'text-white' : 'text-charcoal-400'} />
+                                  </div>
+                                  <div className="flex-1 pb-4">
+                                    <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                      {h.etapaAnterior ? (
+                                        <>
+                                          <span className={`px-1.5 py-0.5 text-[10px] rounded border font-medium ${etAnterior?.color ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                            {etAnterior?.label ?? h.etapaAnterior}
+                                          </span>
+                                          <ArrowRight size={10} className="text-charcoal-400" />
+                                        </>
+                                      ) : (
+                                        <span className="text-[10px] text-charcoal-400 italic">Entrada no funil →</span>
+                                      )}
+                                      <span className={`px-1.5 py-0.5 text-[10px] rounded border font-medium ${etNova?.color ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                        {etNova?.label ?? h.etapaNova}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-charcoal-400 mb-2">
+                                      {new Date(h.alteradoEm).toLocaleDateString('pt-BR')} às {new Date(h.alteradoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                      {h.alteradoPor ? ` · por ${h.alteradoPor}` : ''}
+                                    </p>
+                                    {/* Snapshot */}
+                                    <div className="bg-cream-50 rounded-sm border border-cream-200 p-2.5 space-y-1.5">
+                                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                                        {h.origem && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Origem:</span> {h.origem}</p>}
+                                        {h.interesse && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Interesse:</span> {h.interesse}</p>}
+                                        {h.planoDesejado && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Plano:</span> {h.planoDesejado}</p>}
+                                        {h.ultimoContato && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Último contato:</span> {new Date(h.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+                                        {h.proximoFollowUp && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Follow-up:</span> {new Date(h.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+                                      </div>
+                                      {h.tags && h.tags.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 pt-0.5">
+                                          {h.tags.map(tag => <span key={tag} className="px-1.5 py-0.5 bg-cream-200 text-charcoal-500 text-[10px] rounded">{tag}</span>)}
+                                        </div>
+                                      )}
+                                      {h.observacoes && (
+                                        <p className="text-[10px] text-charcoal-600 italic border-t border-cream-300 pt-1.5 mt-1">{h.observacoes}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Interações CRM */}
+                    {assLead.interacoes.length > 0 && (
+                      <div className="border-t border-cream-200 pt-4">
+                        <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">
+                          Interações
+                          <span className="ml-1.5 text-[10px] bg-cream-200 text-charcoal-500 rounded-full px-1.5 py-0.5">{assLead.interacoes.length}</span>
+                        </p>
+                        <div className="space-y-3">
+                          {assLead.interacoes.map(inter => {
+                            const interIcon = inter.tipo === 'email'
+                              ? { icon: <Mail size={13} />, bg: 'bg-blue-100 text-blue-500' }
+                              : inter.tipo === 'whatsapp'
+                              ? { icon: <MessageSquare size={13} />, bg: 'bg-green-100 text-green-500' }
+                              : inter.tipo === 'ligacao'
+                              ? { icon: <Phone size={13} />, bg: 'bg-charcoal-100 text-charcoal-500' }
+                              : { icon: <FileText size={13} />, bg: 'bg-amber-100 text-amber-600' };
+                            return (
+                              <div key={inter.id} className="flex gap-3 p-3 bg-cream-50 rounded-sm border border-cream-100">
+                                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${interIcon.bg}`}>
+                                  {interIcon.icon}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-charcoal-700">{inter.descricao}</p>
+                                  <p className="text-[10px] text-charcoal-400 mt-1">
+                                    {new Date(inter.data).toLocaleDateString('pt-BR')} às {new Date(inter.data).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                    {inter.usuario ? ` · ${inter.usuario}` : ''}
+                                    <span className="ml-2 capitalize px-1.5 py-0.5 bg-cream-200 rounded text-[9px]">{inter.tipo}</span>
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            )}
+
+            {/* ── Aba: Assinatura ── */}
+            {assDetalheTab === 'assinatura' && (<>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {[
                 { label: 'Cliente', value: selected.clienteNome ?? '—' },
@@ -1072,6 +1310,7 @@ export function AdminAssinaturas() {
                 </>
               )}
             </div>
+            </>)}
           </div>
         )}
       </Modal>
