@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight, Star, Package, BookOpen, Heart, Plus,
@@ -57,6 +57,35 @@ function ScrollProgress() {
 // ---------- HERO ----------
 
 function Hero() {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    const START = 3;
+    const END   = 11;
+
+    const script = document.createElement('script');
+    script.src = 'https://player.vimeo.com/api/player.js';
+    script.async = true;
+
+    script.onload = () => {
+      if (!iframeRef.current || !(window as any).Vimeo) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const player = new (window as any).Vimeo.Player(iframeRef.current);
+
+      player.ready().then(() => player.setCurrentTime(START));
+
+      player.on('timeupdate', ({ seconds }: { seconds: number }) => {
+        if (seconds >= END) player.setCurrentTime(START);
+      });
+
+      // Fallback: se o vídeo terminar antes do END (ex: duração menor)
+      player.on('ended', () => player.play().then(() => player.setCurrentTime(START)));
+    };
+
+    document.head.appendChild(script);
+    return () => { document.head.contains(script) && document.head.removeChild(script); };
+  }, []);
+
   return (
     <section className="relative overflow-hidden bg-charcoal-700 text-cream-100">
       <div className="absolute inset-0 grain-layer opacity-[0.12]" />
@@ -81,7 +110,8 @@ function Hero() {
         <div className="relative w-full h-[62vh] sm:h-[68vh] lg:h-[78vh] overflow-hidden">
           <div className="absolute inset-0 overflow-hidden">
             <iframe
-              src="https://player.vimeo.com/video/1159251839?autoplay=1&autopause=1&color=240700&background=1&transparent=0&controls=0&loop=1&muted=1&portrait=0&title=0&byline=0"
+              ref={iframeRef}
+              src="https://player.vimeo.com/video/1159251839?autoplay=1&autopause=0&color=240700&transparent=0&controls=0&loop=0&muted=1&portrait=0&title=0&byline=0"
               title="Das Matas — Hero"
               allow="autoplay; fullscreen; picture-in-picture"
               className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[177.78vh] h-[56.25vw] min-w-full min-h-full border-0 pointer-events-none"

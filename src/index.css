@@ -65,6 +65,12 @@
     animation: marqueeX 45s linear infinite;
   }
 
+  /* Alias para uso direto com Tailwind arbitrary */
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-33.3333%); }
+  }
+
   @keyframes driftSlow {
     0%, 100% { transform: translate(0, 0); }
     50% { transform: translate(12px, -8px); }
