@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Menu, X, ShoppingCart, User } from 'lucide-react';
 import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
 
 const navLinks = [
-  { to: '/clube', label: 'Clube' },
+  { to: '/cafeteria', label: 'Cafeteria' },
   { to: '/planos', label: 'Planos' },
   { to: '/loja', label: 'Loja' },
   { to: '/reservas', label: 'Reservas' },
@@ -17,7 +17,7 @@ export function PublicHeader() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const { count } = useCart();
-  const { isAuthenticated, isAdmin, isClient } = useAuth();
+  const { isAuthenticated, isAdmin } = useAuth();
   const location = useLocation();
 
   useEffect(() => {

@@ -18,7 +18,10 @@
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(node -e \"const {execSync} = require\\('child_process'\\); try { const r = execSync\\('node_modules/.bin/tsc --noEmit', {encoding:'utf8', timeout:30000}\\); console.log\\('ok'\\); } catch\\(e\\) { console.log\\(e.stdout\\); console.log\\(e.stderr\\); }\")",
       "Bash(cmd /c \"node_modules\\\\.bin\\\\tsc --noEmit 2>&1\")",
-      "Bash(cmd /c \"node -e \\\\\"const p = require\\('./package.json'\\); console.log\\(JSON.stringify\\(Object.keys\\(p.dependencies||{}\\), null, 2\\)\\)\\\\\"\")"
+      "Bash(cmd /c \"node -e \\\\\"const p = require\\('./package.json'\\); console.log\\(JSON.stringify\\(Object.keys\\(p.dependencies||{}\\), null, 2\\)\\)\\\\\"\")",
+      "Bash(python3 -c ' *)",
+      "Bash(node fix_social.js)",
+      "Bash(node fix_social.cjs)"
     ]
   }
 }

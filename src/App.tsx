@@ -20,6 +20,7 @@ import { AssinarPage } from './pages/public/AssinarPage';
 import { LoginPage } from './pages/public/LoginPage';
 import { CheckoutPage } from './pages/public/CheckoutPage';
 import { SuccessPage } from './pages/public/SuccessPage';
+import { CafeteriaPage } from './pages/public/CafeteriaPage';
 
 // Client Pages
 import { ClientDashboard } from './pages/client/ClientDashboard';
@@ -307,6 +308,7 @@ function AppRoutes() {
       <Route path="/blog/:slug" element={<PublicLayout><BlogPostPage /></PublicLayout>} />
       <Route path="/loja" element={<PublicLayout><LojaPage /></PublicLayout>} />
       <Route path="/reservas" element={<PublicLayout><ReservasPage /></PublicLayout>} />
+      <Route path="/cafeteria" element={<PublicLayout><CafeteriaPage /></PublicLayout>} />
       <Route path="/assinar" element={<AssinarPage />} />
       <Route path="/checkout" element={<CheckoutPage />} />
       <Route path="/sucesso" element={<SuccessPage />} />

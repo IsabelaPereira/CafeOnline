@@ -263,7 +263,7 @@ function StepVisual({ step, planoObj, planoIdx, dados, preferencias, endereco, f
               </p>
               <div className="min-h-[100px] md:min-h-[140px] flex items-end pb-4 border-b-2 border-gold-300/40 overflow-hidden">
                 <p className="font-display italic text-[44px] md:text-[72px] leading-none text-cream-100 break-all">
-                  {dados.nome?.trim() || 'seu nome aqui'}
+                  {dados.nome?.trim().split(' ')[0] || 'seu nome aqui'}
                 </p>
               </div>
               <div className="flex items-center gap-3 mt-4">
