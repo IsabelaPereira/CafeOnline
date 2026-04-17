@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Edit, Eye, Package, AlertTriangle } from 'lucide-react';
+import { Plus, Edit, Package, AlertTriangle, Trash2, CheckSquare, EyeOff, Eye } from 'lucide-react';
 import {
   Card, Badge, Button, Modal, Input, Select, Textarea,
   SectionHeader, SearchBar, FilterBar, StatCard, Tabs
 } from '../../components/ui';
-import { getProdutos } from '../../services/produtos.service';
+import { getProdutos, deleteProduto, updateProduto } from '../../services/produtos.service';
 import type { Produto } from '../../types';
 
 export function AdminProdutos() {
@@ -13,6 +13,12 @@ export function AdminProdutos() {
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(false);
   const [selectedProd, setSelectedProd] = useState<Produto | null>(null);
+
+  // Seleção múltipla
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleteModal, setDeleteModal] = useState<{ ids: string[]; names: string[] } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   useEffect(() => {
     getProdutos().then(setProdutos).catch(console.error);
@@ -25,6 +31,76 @@ export function AdminProdutos() {
   );
 
   const baixoEstoque = produtos.filter(p => p.estoque <= p.estoqueMinimo);
+
+  // Seleção
+  const allFilteredIds = filtered.map(p => p.id);
+  const allSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selected.has(id));
+  const someSelected = allFilteredIds.some(id => selected.has(id));
+
+  function toggleOne(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelected(prev => {
+        const next = new Set(prev);
+        allFilteredIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelected(prev => new Set([...prev, ...allFilteredIds]));
+    }
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  // Confirmar exclusão
+  function confirmDelete(ids: string[]) {
+    const names = ids.map(id => produtos.find(p => p.id === id)?.nome ?? id);
+    setDeleteModal({ ids, names });
+  }
+
+  async function handleDelete() {
+    if (!deleteModal) return;
+    setDeleting(true);
+    try {
+      await Promise.all(deleteModal.ids.map(id => deleteProduto(id)));
+      setProdutos(prev => prev.filter(p => !deleteModal.ids.includes(p.id)));
+      setSelected(prev => {
+        const next = new Set(prev);
+        deleteModal.ids.forEach(id => next.delete(id));
+        return next;
+      });
+      setDeleteModal(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  // Toggle ativo/inativo — individual ou em lote
+  async function handleToggleAtivo(ids: string[], ativo: boolean) {
+    setTogglingId(ids[0]);
+    try {
+      await Promise.all(ids.map(id => updateProduto(id, { ativo })));
+      setProdutos(prev => prev.map(p => ids.includes(p.id) ? { ...p, ativo } : p));
+      clearSelection();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  const selectedInView = allFilteredIds.filter(id => selected.has(id));
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -74,10 +150,59 @@ export function AdminProdutos() {
           <FilterBar>
             <SearchBar value={search} onChange={setSearch} placeholder="Buscar produto ou SKU..." className="w-64" />
           </FilterBar>
+
+          {/* Barra de ações em lote */}
+          {someSelected && selectedInView.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-forest-50 border-b border-forest-100">
+              <CheckSquare size={15} className="text-forest-600" />
+              <span className="text-sm font-medium text-forest-700">
+                {selectedInView.length} selecionado{selectedInView.length > 1 ? 's' : ''}
+              </span>
+              <div className="flex items-center gap-2 ml-2">
+                <button
+                  onClick={() => handleToggleAtivo(selectedInView, false)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-charcoal-600 bg-white hover:bg-cream-100 border border-charcoal-200 rounded-sm transition-colors"
+                >
+                  <EyeOff size={12} />
+                  Desabilitar
+                </button>
+                <button
+                  onClick={() => handleToggleAtivo(selectedInView, true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-forest-600 bg-forest-50 hover:bg-forest-100 rounded-sm transition-colors"
+                >
+                  <Eye size={12} />
+                  Habilitar
+                </button>
+                <button
+                  onClick={() => confirmDelete(selectedInView)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-sm transition-colors"
+                >
+                  <Trash2 size={12} />
+                  Excluir
+                </button>
+              </div>
+              <button
+                onClick={clearSelection}
+                className="ml-auto text-xs text-charcoal-400 hover:text-charcoal-600 transition-colors"
+              >
+                Limpar seleção
+              </button>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr>
+                  <th className="table-th w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                      onChange={toggleAll}
+                      className="rounded-sm border-charcoal-300 text-forest-500 focus:ring-forest-400"
+                    />
+                  </th>
                   <th className="table-th">SKU</th>
                   <th className="table-th">Produto</th>
                   <th className="table-th">Categoria</th>
@@ -90,7 +215,18 @@ export function AdminProdutos() {
               </thead>
               <tbody>
                 {filtered.map(p => (
-                  <tr key={p.id} className="border-t border-cream-100 hover:bg-cream-50">
+                  <tr
+                    key={p.id}
+                    className={`border-t border-cream-100 hover:bg-cream-50 transition-colors ${selected.has(p.id) ? 'bg-forest-50/40' : ''}`}
+                  >
+                    <td className="table-td w-10">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => toggleOne(p.id)}
+                        className="rounded-sm border-charcoal-300 text-forest-500 focus:ring-forest-400"
+                      />
+                    </td>
                     <td className="table-td text-xs text-charcoal-500 font-mono">{p.sku}</td>
                     <td className="table-td">
                       <div className="flex items-center gap-3">
@@ -109,16 +245,14 @@ export function AdminProdutos() {
                       )}
                     </td>
                     <td className="table-td">
-                      <div>
-                        {p.precoPromocional ? (
-                          <>
-                            <p className="text-xs text-charcoal-400 line-through">R$ {p.preco.toFixed(2)}</p>
-                            <p className="font-medium text-charcoal-700">R$ {p.precoPromocional.toFixed(2)}</p>
-                          </>
-                        ) : (
-                          <p className="font-medium text-charcoal-700">R$ {p.preco.toFixed(2)}</p>
-                        )}
-                      </div>
+                      {p.precoPromocional ? (
+                        <>
+                          <p className="text-xs text-charcoal-400 line-through">R$ {p.preco.toFixed(2)}</p>
+                          <p className="font-medium text-charcoal-700">R$ {p.precoPromocional.toFixed(2)}</p>
+                        </>
+                      ) : (
+                        <p className="font-medium text-charcoal-700">R$ {p.preco.toFixed(2)}</p>
+                      )}
                     </td>
                     <td className="table-td">
                       <span className={`font-medium ${p.estoque <= p.estoqueMinimo ? 'text-red-500' : 'text-charcoal-700'}`}>
@@ -136,9 +270,29 @@ export function AdminProdutos() {
                       <div className="flex gap-1">
                         <button
                           onClick={() => { setSelectedProd(p); setModal(true); }}
-                          className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm"
+                          className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors"
+                          title="Editar"
                         >
                           <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleToggleAtivo([p.id], !p.ativo)}
+                          disabled={togglingId === p.id}
+                          className={`p-1.5 rounded-sm transition-colors ${
+                            p.ativo
+                              ? 'text-charcoal-400 hover:text-amber-500 hover:bg-amber-50'
+                              : 'text-charcoal-400 hover:text-forest-500 hover:bg-forest-50'
+                          }`}
+                          title={p.ativo ? 'Desabilitar' : 'Habilitar'}
+                        >
+                          {p.ativo ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                        <button
+                          onClick={() => confirmDelete([p.id])}
+                          className="p-1.5 text-charcoal-400 hover:text-red-500 hover:bg-red-50 rounded-sm transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </td>
@@ -185,7 +339,7 @@ export function AdminProdutos() {
         </Card>
       )}
 
-      {/* Product Modal */}
+      {/* Modal de edição/criação */}
       <Modal
         open={modal}
         onClose={() => setModal(false)}
@@ -218,6 +372,40 @@ export function AdminProdutos() {
             <Button variant="ghost" onClick={() => setModal(false)}>Cancelar</Button>
             <Button variant="primary">
               {selectedProd ? 'Salvar alterações' : 'Criar produto'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal de confirmação de exclusão */}
+      <Modal
+        open={!!deleteModal}
+        onClose={() => !deleting && setDeleteModal(null)}
+        title="Confirmar exclusão"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 bg-red-50 rounded-sm">
+            <Trash2 size={16} className="text-red-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-charcoal-700">
+                {deleteModal?.ids.length === 1
+                  ? 'Excluir este produto permanentemente?'
+                  : `Excluir ${deleteModal?.ids.length} produtos permanentemente?`}
+              </p>
+              <p className="text-xs text-charcoal-500 mt-1">
+                {deleteModal?.names.join(', ')}
+              </p>
+            </div>
+          </div>
+          <p className="text-sm text-charcoal-500">Esta ação não pode ser desfeita.</p>
+          <div className="flex gap-3 justify-end pt-2 border-t border-cream-200">
+            <Button variant="ghost" onClick={() => setDeleteModal(null)} disabled={deleting}>
+              Cancelar
+            </Button>
+            <Button variant="danger" onClick={handleDelete} disabled={deleting}>
+              <Trash2 size={14} />
+              {deleting ? 'Excluindo...' : 'Excluir'}
             </Button>
           </div>
         </div>

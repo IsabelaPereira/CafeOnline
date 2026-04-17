@@ -288,9 +288,9 @@ export function PlanosShowcase({
           <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-6 max-w-5xl mx-auto">
             {[
               { icon: Truck, label: 'Entrega nacional', sub: 'Para todo Brasil' },
-              { icon: Gift, label: 'Presenteie', sub: '3, 6 ou 12 meses' },
-              { icon: Award, label: 'Curadoria premiada', sub: 'Baristas SCA' },
-              { icon: Shield, label: 'Garantia de frescor', sub: 'Torra sob demanda' },
+              { icon: Gift, label: 'Receba em casa', sub: 'Envio programado, sem chance de ficar sem café' },
+              { icon: Award, label: 'Cafés Premicaods', sub: 'Receba cafés que não encontra à venda no mercado' },
+              { icon: Shield, label: 'Garantia de frescor', sub: 'Envio de cafés com torra fresca' },
             ].map(item => (
               <div
                 key={item.label}

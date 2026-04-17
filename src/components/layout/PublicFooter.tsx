@@ -165,11 +165,16 @@ export function PublicFooter() {
                   </a>
                 </li>
               )}
-              {empresa?.telefone && (
+              {(empresa?.whatsapp || empresa?.telefone) && (
                 <li className="flex items-center gap-2.5 text-sm text-charcoal-300">
                   <Phone size={14} className="text-earth-300 shrink-0" />
-                  <a href={`tel:${empresa.telefone.replace(/\D/g, '')}`} className="hover:text-cream-100 transition-colors">
-                    {empresa.telefone}
+                  <a
+                    href={`https://wa.me/${(empresa.whatsapp || empresa.telefone).replace(/\D/g, '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-cream-100 transition-colors"
+                  >
+                    {empresa.whatsapp || empresa.telefone}
                   </a>
                 </li>
               )}

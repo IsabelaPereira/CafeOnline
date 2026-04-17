@@ -10,7 +10,6 @@ const navLinks = [
   { to: '/loja', label: 'Loja' },
   { to: '/reservas', label: 'Reservas' },
   { to: '/blog', label: 'Blog' },
-  { to: '/sobre', label: 'Sobre' },
 ];
 
 export function PublicHeader() {

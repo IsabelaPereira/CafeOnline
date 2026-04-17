@@ -710,12 +710,16 @@ function FAQ() {
       a: 'Sim. Você pode mudar de plano a qualquer momento pela sua área de cliente. A mudança é efetiva na próxima cobrança.',
     },
     {
-      q: 'Em quanto tempo recebo meu primeiro pedido?',
-      a: 'O primeiro envio é feito em até 7 dias úteis após a confirmação do pagamento. Você recebe o código de rastreio por e-mail.',
+      q: 'Como são os envios?',
+      a: 'O envio acontece no dia 15 de cada mês.',
     },
     {
       q: 'Posso escolher quais cafés recebo?',
       a: 'O clube funciona com curadoria — a seleção é feita pela nossa equipe para garantir a melhor experiência de descoberta. Você pode indicar preferências sensoriais no perfil.',
+    },
+    {
+      q: 'Qual o diferencial?',
+      a: 'Receber café de verdade, que passa por curadoria de profissionais especiazados, recebe cafés que participam de campeonados e não encontra à venda no mercado nacional.',
     },
   ];
 
@@ -929,7 +933,7 @@ function CTAFinal() {
           <em className="not-italic font-serif">especial</em> hoje.
         </h2>
         <p className="mt-10 text-cream-200/75 font-display italic text-xl max-w-xl mx-auto">
-          Junte-se a 127 assinantes que descobrem novos cafés todo mês.
+          Junte-se aos assinantes que descobrem novos cafés todo mês.
         </p>
 
         <div className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-3">

@@ -1,8 +1,20 @@
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
+
 import { PlanosShowcase } from '../../components/planos/PlanosShowcase';
+import { getConfiguracoes } from '../../services/configuracoes.service';
 
 export function PlanosPage() {
+  const [whatsappUrl, setWhatsappUrl] = useState('https://wa.me/');
+
+  useEffect(() => {
+    getConfiguracoes().then(config => {
+      const num = config?.empresa?.whatsapp || config?.empresa?.telefone || '';
+      const digits = num.replace(/\D/g, '');
+      if (digits) setWhatsappUrl(`https://wa.me/${digits}`);
+    }).catch(() => {});
+  }, []);
+
   return (
     <div className="pt-20">
       {/* Editorial Hero */}
@@ -70,18 +82,19 @@ export function PlanosPage() {
                 </thead>
                 <tbody className="divide-y divide-charcoal-100">
                   {[
-                    ['Pacotes de 250g/mês', '2', '3', '4'],
+                    ['Pacotes de 250g/mês', '2', '2', '2'],
+                    ['Cafés diferentes todo mês', false, true, true],
                     ['Edição mensal exclusiva', true, true, true],
                     ['Ficha sensorial do produtor', true, true, true],
                     ['Conteúdo educativo premium', true, true, true],
-                    ['Café raro de microlote', false, true, true],
-                    ['Degustação guiada em vídeo', false, true, true],
-                    ['Curso online de barismo', false, true, true],
+                    ['Café raro de microlote', false, false, true],
+                    ['Conteúdos em vídeo', false, true, true],
+                    ['Cursos online', false, true, true],
                     ['Edições limitadas e raras', false, false, true],
-                    ['Mentoria trimestral com barista', false, false, true],
-                    ['Eventos exclusivos presenciais', false, false, true],
-                    ['Desconto na loja', '—', '15%', '25%'],
-                    ['Frete', 'Calculado', 'Grátis Brasil', 'Expresso grátis'],
+                    ['Convites para wrokshop presencial', true, true, true],
+                    ['Ingressos gratuitos para wrokshop presencial', false, false, true],
+                    ['Desconto na loja', '—', '10%', '15%'],
+                    ['Frete', 'Calculado', 'Calculado', 'Frete grátis'],
                   ].map(([label, d, e, c], i) => (
                     <tr key={i} className="hover:bg-cream-50/60 transition-colors">
                       <td className="px-6 py-4 text-sm text-charcoal-600 font-medium">{String(label)}</td>
@@ -114,9 +127,9 @@ export function PlanosPage() {
 
           <p className="text-center text-sm text-charcoal-500 mt-10">
             Ainda com dúvidas?{' '}
-            <Link to="/contato" className="text-earth-500 hover:text-earth-600 underline underline-offset-4">
+            <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" className="text-earth-500 hover:text-earth-600 underline underline-offset-4">
               Fale com a gente
-            </Link>
+            </a>
           </p>
         </div>
       </section>
