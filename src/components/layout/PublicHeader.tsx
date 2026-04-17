@@ -5,6 +5,7 @@ import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
 
 const navLinks = [
+  { to: '/', label: 'Clube' },
   { to: '/cafeteria', label: 'Cafeteria' },
   { to: '/planos', label: 'Planos' },
   { to: '/loja', label: 'Loja' },

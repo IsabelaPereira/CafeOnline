@@ -37,6 +37,7 @@ const navItems: NavItem[] = [
       { label: 'Funil de leads', to: '/admin/crm' },
       { label: 'Todos os leads', to: '/admin/crm/leads' },
       { label: 'Clientes', to: '/admin/crm/clientes' },
+      { label: 'Follow-up', to: '/admin/crm/followup' },
     ],
   },
   { icon: <Calendar size={16} />, label: 'Reservas', to: '/admin/reservas' },

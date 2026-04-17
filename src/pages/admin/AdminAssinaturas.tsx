@@ -6,7 +6,7 @@ import {
 } from '../../components/ui';
 import { getAssinaturas, getPlanos, updatePlano, createPlano, manageAssinatura, updatePreferenciaAssinatura, criarPedidoManualAssinatura } from '../../services/assinaturas.service';
 import { getEdicoes } from '../../services/edicoes.service';
-import { getLeadByEmail, getHistoricoEtapaLead } from '../../services/leads.service';
+import { getLeadByEmail, getLeadByClienteId, getHistoricoEtapaLead, updateLeadCheckout } from '../../services/leads.service';
 import { supabase } from '../../lib/supabase';
 import type { Assinatura, PlanoAssinatura, EdicaoClube, Lead, LeadEtapa, HistoricoEtapaLead } from '../../types';
 
@@ -24,6 +24,8 @@ const ETAPAS_MAP: Record<string, { label: string; color: string }> = {
   pagamento_invalido:     { label: 'Pagamento Inválido',     color: 'bg-red-100 text-red-700 border-red-200'           },
   pagamento_pendente:     { label: 'Pagamento Pendente',     color: 'bg-yellow-100 text-yellow-700 border-yellow-200'  },
   assinatura_concluida:   { label: 'Assinatura Concluída',   color: 'bg-forest-100 text-forest-700 border-forest-200'  },
+  assinatura_cancelada:   { label: 'Assinatura Cancelada',  color: 'bg-red-100 text-red-700 border-red-200'            },
+  compra_concluida:       { label: 'Compra Concluída',      color: 'bg-blue-100 text-blue-700 border-blue-200'         },
   interesse_reserva:      { label: 'Interesse Reserva',      color: 'bg-purple-100 text-purple-700 border-purple-200'  },
   cliente_ativo:          { label: 'Cliente Ativo',          color: 'bg-forest-100 text-forest-700 border-forest-200'  },
   inadimplente:           { label: 'Inadimplente',           color: 'bg-red-100 text-red-700 border-red-200'           },
@@ -288,6 +290,27 @@ export function AdminAssinaturas() {
         window.open(result.url, '_blank');
         return;
       }
+
+      // Após cancelamento, atualizar lead com etapa 'assinatura_cancelada' e follow-up em 15min
+      if (acao === 'cancel_now' || acao === 'cancel_at_period_end') {
+        const assinaturaAtual = assinaturas.find(a => a.id === assinaturaId);
+        if (assinaturaAtual) {
+          const lead = assinaturaAtual.clienteId
+            ? await getLeadByClienteId(assinaturaAtual.clienteId).catch(() => null)
+            : assinaturaAtual.clienteEmail
+            ? await getLeadByEmail(assinaturaAtual.clienteEmail).catch(() => null)
+            : null;
+          if (lead) {
+            const followUp = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+            await updateLeadCheckout(lead.id, {
+              etapa: 'assinatura_cancelada',
+              proximoFollowUp: followUp,
+              observacoes: motivo ? `Cancelamento: ${motivo}` : undefined,
+            }).catch(() => {});
+          }
+        }
+      }
+
       // Recarregar lista
       const updated = await getAssinaturas();
       setAssinaturas(updated);

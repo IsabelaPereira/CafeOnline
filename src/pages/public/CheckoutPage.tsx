@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ShoppingCart, MapPin, CreditCard, CheckCircle2,
@@ -11,6 +11,8 @@ import { createPedido } from '../../services/pedidos.service';
 import { getClienteByUserId } from '../../services/clientes.service';
 import { createCheckoutSession } from '../../services/stripe.service';
 import { RETIRADA_OPCAO } from '../../services/frete.service';
+import { upsertLeadByEmail } from '../../services/leads.service';
+import { supabase } from '../../lib/supabase';
 
 // ---- STEP INDICATOR ----
 function StepIndicator({ step }: { step: number }) {
@@ -278,6 +280,8 @@ const FRETE_OPCOES = [
   { id: 'jadlog', nome: 'Jadlog',          empresa: '5–8 dias úteis',  preco: 22.5,  prazo: 5 },
 ];
 
+interface ContatoForm { nome: string; email: string; telefone: string; }
+
 function StepEntrega({
   onNext,
   onBack,
@@ -286,6 +290,9 @@ function StepEntrega({
   freteOpcaoId,
   setFreteOpcaoId,
   setFrete,
+  contato,
+  setContato,
+  isLoggedIn,
 }: {
   onNext: () => void;
   onBack: () => void;
@@ -294,6 +301,9 @@ function StepEntrega({
   freteOpcaoId: string;
   setFreteOpcaoId: (id: string) => void;
   setFrete: (f: number) => void;
+  contato: ContatoForm;
+  setContato: (c: ContatoForm) => void;
+  isLoggedIn: boolean;
 }) {
   const [cepLoading, setCepLoading] = useState(false);
   const [cepErro, setCepErro] = useState('');
@@ -358,6 +368,30 @@ function StepEntrega({
   return (
     <div>
       <h2 className="font-serif text-2xl text-charcoal-700 mb-6">Entrega</h2>
+
+      {/* Dados de contato — apenas para visitantes não autenticados */}
+      {!isLoggedIn && (
+        <div className="bg-white rounded-sm border border-cream-200 p-6 mb-6 space-y-4">
+          <p className="text-sm font-medium text-charcoal-600">Dados de contato</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-charcoal-500 mb-1">Nome completo</label>
+              <input value={contato.nome} onChange={e => setContato({ ...contato, nome: e.target.value })}
+                placeholder="Seu nome" className="w-full px-4 py-2.5 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-charcoal-500 mb-1">E-mail</label>
+              <input type="email" value={contato.email} onChange={e => setContato({ ...contato, email: e.target.value })}
+                placeholder="seu@email.com" className="w-full px-4 py-2.5 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 mb-1">Telefone / WhatsApp (opcional)</label>
+            <input value={contato.telefone} onChange={e => setContato({ ...contato, telefone: e.target.value })}
+              placeholder="(11) 99999-9999" className="w-full px-4 py-2.5 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400" />
+          </div>
+        </div>
+      )}
 
       {/* Opções de entrega */}
       <div className="bg-white rounded-sm border border-cream-200 p-6 mb-6">
@@ -767,6 +801,7 @@ export function CheckoutPage() {
     cidade: '',
     estado: '',
   });
+  const [contato, setContato] = useState<ContatoForm>({ nome: '', email: '', telefone: '' });
   const [freteOpcaoId, setFreteOpcaoId] = useState('retirada');
   const [frete, setFrete] = useState(0);
   const [metodo, setMetodo] = useState<MetodoPagamento | ''>('');
@@ -774,13 +809,34 @@ export function CheckoutPage() {
   const [desconto, setDesconto] = useState(0);
   const [pedidoNumero, setPedidoNumero] = useState('');
   const [confirmando, setConfirmando] = useState(false);
+  const [leadId, setLeadId] = useState('');
+  const abandonmentScheduledRef = useRef(false);
   const { items, total, clearCart } = useCart();
   const { user } = useAuth();
+
+  // Agenda verificação de abandono quando o cliente chega ao pagamento
+  useEffect(() => {
+    if (step !== 3) { abandonmentScheduledRef.current = false; return; }
+    if (abandonmentScheduledRef.current || !leadId) return;
+    abandonmentScheduledRef.current = true;
+    const scheduledAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    supabase.from('lead_abandonment_checks').insert({
+      lead_id: leadId,
+      assinatura_id: null,
+      scheduled_at: scheduledAt,
+    }).then(r => {
+      if (r.error) abandonmentScheduledRef.current = false;
+    });
+  }, [step, leadId]);
 
   const confirmar = async () => {
     setConfirmando(true);
     try {
       let clienteId: string | undefined;
+      const emailContato = user?.email ?? contato.email;
+      const nomeContato  = user?.name  ?? contato.nome;
+      const foneContato  = contato.telefone;
+
       if (user) {
         const cliente = await getClienteByUserId(user.id).catch(() => null);
         clienteId = cliente?.id;
@@ -809,11 +865,30 @@ export function CheckoutPage() {
         cupom: cupomAplicado || undefined,
       });
 
+      // Registra / atualiza lead para rastreamento de conversão e carrinho abandonado
+      if (emailContato) {
+        try {
+          const lid = await upsertLeadByEmail({
+            email: emailContato,
+            nome: nomeContato || undefined,
+            telefone: foneContato || undefined,
+            origem: 'checkout',
+            etapa: 'checkout_iniciado',
+            interesse: 'Compra na loja',
+            tags: ['loja'],
+          });
+          setLeadId(lid);
+          sessionStorage.setItem('dsmatas_lead_id', lid);
+        } catch { /* silencioso */ }
+      }
+
       // Redirecionar ao Stripe
       try {
+        const currentLeadId = leadId || sessionStorage.getItem('dsmatas_lead_id') || '';
+        const successPath = `/sucesso?tipo=pedido&id=${pedido.id}${currentLeadId ? `&lead=${currentLeadId}` : ''}`;
         const stripeUrl = await createCheckoutSession({
           items: [{ name: `Pedido ${pedido.numero}`, amount: totalFinal }],
-          successPath: `/sucesso?tipo=pedido&id=${pedido.id}`,
+          successPath,
           cancelPath: '/checkout',
           metadata: { pedido_id: pedido.id },
         });
@@ -867,6 +942,9 @@ export function CheckoutPage() {
             freteOpcaoId={freteOpcaoId}
             setFreteOpcaoId={setFreteOpcaoId}
             setFrete={setFrete}
+            contato={contato}
+            setContato={setContato}
+            isLoggedIn={!!user}
           />
         )}
         {step === 3 && (

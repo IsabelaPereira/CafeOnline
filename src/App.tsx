@@ -48,6 +48,7 @@ import { AdminConfiguracoes } from './pages/admin/AdminConfiguracoes';
 import { AdminLogistica } from './pages/admin/AdminLogistica';
 import { AdminEdicoes } from './pages/admin/AdminEdicoes';
 import { AdminLogs } from './pages/admin/AdminLogs';
+import { AdminCategorias } from './pages/admin/AdminCategorias';
 
 // ---- Protected Routes ----
 function ProtectedClientRoute({ children }: { children: React.ReactNode }) {
@@ -411,6 +412,11 @@ function AppRoutes() {
           <AdminLayout><AdminCRM /></AdminLayout>
         </ProtectedAdminRoute>
       } />
+      <Route path="/admin/crm/followup" element={
+        <ProtectedAdminRoute>
+          <AdminLayout><AdminCRM /></AdminLayout>
+        </ProtectedAdminRoute>
+      } />
       <Route path="/admin/reservas" element={
         <ProtectedAdminRoute>
           <AdminLayout><AdminReservas /></AdminLayout>
@@ -424,6 +430,11 @@ function AppRoutes() {
       <Route path="/admin/produtos/estoque" element={
         <ProtectedAdminRoute>
           <AdminLayout><AdminProdutos /></AdminLayout>
+        </ProtectedAdminRoute>
+      } />
+      <Route path="/admin/produtos/categorias" element={
+        <ProtectedAdminRoute>
+          <AdminLayout><AdminCategorias /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/blog" element={

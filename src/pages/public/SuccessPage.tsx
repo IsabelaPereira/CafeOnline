@@ -32,8 +32,9 @@ export function SuccessPage() {
     }
 
     // ── 2. Lead ──────────────────────────────────────────────────────────────
-    if (leadId && tipo === 'assinatura') {
-      tasks.push(updateLeadEtapa(leadId, 'assinatura_concluida').catch(() => {}));
+    if (leadId) {
+      const etapaFinal = tipo === 'assinatura' ? 'assinatura_concluida' : 'compra_concluida';
+      tasks.push(updateLeadEtapa(leadId, etapaFinal).catch(() => {}));
     }
 
     // ── 3. Edge Function: cria cobrança + salva cartão (requer deploy) ───────

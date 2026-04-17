@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Plus, MessageCircle, Mail, Phone, Tag, Users, ArrowRight,
   Eye, Pencil, SlidersHorizontal, Columns2, X, ChevronDown,
   CreditCard, MapPin, Star, ShoppingBag, Repeat, Calendar, TrendingUp,
   Loader2, GripVertical, Settings2, RotateCcw,
+  CheckCircle2, Clock, AlertCircle, CalendarCheck, RefreshCw,
+  Download, Upload, Trash2, FileDown, SquareCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Card, Button, Modal, Input, Select, Textarea, SectionHeader,
   SearchBar, Tabs, Pagination,
 } from '../../components/ui';
-import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem, updateLeadEtapa, addInteracao, updateLeadClienteId } from '../../services/leads.service';
-import { getClientes, updateCliente, createClienteFromLead, createEndereco } from '../../services/clientes.service';
+import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem, updateLeadEtapa, addInteracao, updateLeadClienteId, updateLead, getFollowUps, marcarFollowUpFeito, createLead } from '../../services/leads.service';
+import { getClientes, updateCliente, updateClientePreferencias, createClienteFromLead, createEndereco } from '../../services/clientes.service';
 import { getPedidos } from '../../services/pedidos.service';
 import { getAssinaturasCliente } from '../../services/assinaturas.service';
 import { getReservasCliente } from '../../services/reservas.service';
@@ -33,6 +36,8 @@ const etapas: { id: LeadEtapa; label: string; color: string }[] = [
   { id: 'pagamento_pendente',     label: 'Pagamento Pendente',     color: 'bg-yellow-100 text-yellow-700 border-yellow-200'  },
   { id: 'carrinho-abandonado',    label: 'Carrinho Abandonado',    color: 'bg-rose-100 text-rose-700 border-rose-200'        },
   { id: 'assinatura_concluida',   label: 'Assinatura Concluída',   color: 'bg-forest-100 text-forest-700 border-forest-200'  },
+  { id: 'assinatura_cancelada',   label: 'Assinatura Cancelada',  color: 'bg-red-100 text-red-700 border-red-200'           },
+  { id: 'compra_concluida',       label: 'Compra Concluída',      color: 'bg-blue-100 text-blue-700 border-blue-200'        },
   { id: 'interesse_reserva',      label: 'Interesse Reserva',      color: 'bg-purple-100 text-purple-700 border-purple-200'  },
   { id: 'cliente_ativo',          label: 'Cliente Ativo',          color: 'bg-forest-100 text-forest-700 border-forest-200'  },
   { id: 'inadimplente',           label: 'Inadimplente',           color: 'bg-red-100 text-red-700 border-red-200'           },
@@ -48,16 +53,18 @@ const ETAPAS_EXCLUIDAS_FUNIL = new Set<LeadEtapa>([
 const etapasFunil = etapas.filter(e => !ETAPAS_EXCLUIDAS_FUNIL.has(e.id));
 const FUNIL_DEFAULT_ORDEM = etapasFunil.map(e => e.id);
 
-function LeadCard({ lead, onClick, onDragStart, onDragEnd }: {
+function LeadCard({ lead, onClick, onDragStart, onDragEnd, colunasVis }: {
   lead: Lead;
   onClick: () => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
+  colunasVis?: Set<string>;
 }) {
   const etapa = etapas.find(e => e.id === lead.etapa);
   const origemIcon: Record<string, string> = {
     checkout: '🛒', reserva: '📅', manual: '✍️', blog: '📝', social: '📱', indicacao: '👥', landing: '🎯',
   };
+  const vis = colunasVis ?? new Set(COLUNAS_FUNIL_CARD.filter(c => c.padrao).map(c => c.id));
   return (
     <div
       draggable={!!onDragStart}
@@ -71,18 +78,22 @@ function LeadCard({ lead, onClick, onDragStart, onDragEnd }: {
           <p className="font-medium text-charcoal-700 text-sm">{lead.nome}</p>
           <p className="text-xs text-charcoal-400">{lead.email}</p>
         </div>
-        <span className="text-sm">{origemIcon[lead.origem] || '📋'}</span>
+        {vis.has('origem') && <span className="text-sm">{origemIcon[lead.origem] || '📋'}</span>}
       </div>
-      {lead.planoDesejado && <p className="text-xs text-forest-600 mb-2">→ {lead.planoDesejado}</p>}
-      <div className="flex flex-wrap gap-1 mb-3">
-        {lead.tags.map(tag => (
-          <span key={tag} className="px-1.5 py-0.5 bg-cream-100 text-charcoal-500 text-xs rounded border border-cream-200">{tag}</span>
-        ))}
-      </div>
-      {lead.proximoFollowUp && (
-        <p className="text-xs text-charcoal-400">Follow-up: {new Date(lead.proximoFollowUp).toLocaleDateString('pt-BR')}</p>
+      {vis.has('plano') && lead.planoDesejado && <p className="text-xs text-forest-600 mb-2">→ {lead.planoDesejado}</p>}
+      {vis.has('tags') && lead.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {lead.tags.map(tag => (
+            <span key={tag} className="px-1.5 py-0.5 bg-cream-100 text-charcoal-500 text-xs rounded border border-cream-200">{tag}</span>
+          ))}
+        </div>
       )}
-      <span className={`inline-block mt-2 px-2 py-0.5 text-xs rounded border ${etapa?.color}`}>{etapa?.label}</span>
+      {vis.has('followup') && lead.proximoFollowUp && (
+        <p className="text-xs text-charcoal-400 mb-1">Follow-up: {new Date(lead.proximoFollowUp).toLocaleDateString('pt-BR')}</p>
+      )}
+      {vis.has('etapabadge') && etapa && (
+        <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded border ${etapa.color}`}>{etapa.label}</span>
+      )}
     </div>
   );
 }
@@ -147,12 +158,748 @@ function matchCliFiltro(c: Cliente, f: FiltroCliente): boolean {
   }
 }
 
+// ── Filtro dinâmico leads ─────────────────────────────────────────────────────
+
+interface FiltroLead { id: string; campo: string; operador: string; valor: string }
+
+const CAMPOS_LEAD = [
+  { value: 'nome',            label: 'Nome',             tipo: 'texto'   },
+  { value: 'email',           label: 'E-mail',           tipo: 'texto'   },
+  { value: 'telefone',        label: 'Telefone',         tipo: 'texto'   },
+  { value: 'origem',          label: 'Origem',           tipo: 'origem'  },
+  { value: 'etapa',           label: 'Etapa',            tipo: 'etapa'   },
+  { value: 'planoDesejado',   label: 'Plano',            tipo: 'texto'   },
+  { value: 'tags',            label: 'Tags',             tipo: 'texto'   },
+  { value: 'responsavel',     label: 'Responsável',      tipo: 'texto'   },
+  { value: 'proximoFollowUp', label: 'Follow-up',        tipo: 'data'    },
+  { value: 'ultimoContato',   label: 'Último contato',   tipo: 'data'    },
+  { value: 'createdAt',       label: 'Data de entrada',  tipo: 'data'    },
+];
+
+const OPERADORES_LEAD: Record<string, { value: string; label: string }[]> = {
+  texto:  [{ value:'contem',label:'contém'},{ value:'igual',label:'é igual'},{ value:'comeca',label:'começa com'},{ value:'vazio',label:'está vazio'}],
+  origem: [{ value:'igual',label:'é'},{ value:'diferente',label:'não é'}],
+  etapa:  [{ value:'igual',label:'é'},{ value:'diferente',label:'não é'}],
+  data:   [{ value:'tem',label:'tem data'},{ value:'nao_tem',label:'sem data'},{ value:'antes',label:'antes de'},{ value:'depois',label:'depois de'},{ value:'igual',label:'na data'}],
+};
+
+const COLUNAS_LEAD = [
+  { id: 'nome',        label: 'Nome',            padrao: true  },
+  { id: 'contato',     label: 'Contato',         padrao: true  },
+  { id: 'origem',      label: 'Origem',          padrao: true  },
+  { id: 'etapa',       label: 'Etapa',           padrao: true  },
+  { id: 'plano',       label: 'Plano',           padrao: true  },
+  { id: 'followup',    label: 'Follow-up',       padrao: true  },
+  { id: 'tags',        label: 'Tags',            padrao: false },
+  { id: 'responsavel', label: 'Responsável',     padrao: false },
+  { id: 'observacoes', label: 'Observações',     padrao: false },
+  { id: 'criado',      label: 'Data de entrada', padrao: false },
+];
+
+const COLUNAS_FUNIL_CARD = [
+  { id: 'origem',    label: 'Ícone de origem', padrao: true  },
+  { id: 'plano',     label: 'Plano desejado',  padrao: true  },
+  { id: 'tags',      label: 'Tags',            padrao: true  },
+  { id: 'followup',  label: 'Follow-up',       padrao: true  },
+  { id: 'etapabadge',label: 'Badge de etapa',  padrao: false },
+];
+
+function matchLeadTexto(t: string, op: string, v: string) {
+  if (op === 'vazio')  return !t.trim();
+  if (op === 'contem') return t.includes(v);
+  if (op === 'igual')  return t === v;
+  if (op === 'comeca') return t.startsWith(v);
+  return true;
+}
+function matchLeadData(d: string | undefined, op: string, v: string) {
+  if (op === 'tem')    return !!d;
+  if (op === 'nao_tem') return !d;
+  if (!d) return true;
+  if (!v) return true;
+  const dt = new Date(d).getTime(), dv = new Date(v).getTime();
+  if (isNaN(dt) || isNaN(dv)) return true;
+  if (op === 'igual')  return d.startsWith(v);
+  if (op === 'antes')  return dt < dv;
+  if (op === 'depois') return dt > dv;
+  return true;
+}
+function matchLeadFiltro(l: Lead, f: FiltroLead): boolean {
+  const isDataOp = f.operador === 'tem' || f.operador === 'nao_tem';
+  if (!f.valor.trim() && !isDataOp) return true;
+  const v = f.valor.toLowerCase().trim();
+  switch (f.campo) {
+    case 'nome':            return matchLeadTexto(l.nome.toLowerCase(), f.operador, v);
+    case 'email':           return matchLeadTexto(l.email.toLowerCase(), f.operador, v);
+    case 'telefone':        return matchLeadTexto((l.telefone ?? '').toLowerCase(), f.operador, v);
+    case 'planoDesejado':   return matchLeadTexto((l.planoDesejado ?? '').toLowerCase(), f.operador, v);
+    case 'responsavel':     return matchLeadTexto((l.responsavel ?? '').toLowerCase(), f.operador, v);
+    case 'tags':            return l.tags.some(t => t.toLowerCase().includes(v));
+    case 'origem':          return f.operador === 'diferente' ? l.origem !== f.valor : l.origem === f.valor;
+    case 'etapa':           return f.operador === 'diferente' ? l.etapa  !== f.valor : l.etapa  === f.valor;
+    case 'proximoFollowUp': return matchLeadData(l.proximoFollowUp, f.operador, f.valor);
+    case 'ultimoContato':   return matchLeadData(l.ultimoContato,   f.operador, f.valor);
+    case 'createdAt':       return matchLeadData(l.createdAt,        f.operador, f.valor);
+    default: return true;
+  }
+}
+
+// ── FollowUpTab ───────────────────────────────────────────────────────────────
+
+function FollowUpTab({
+  followUps,
+  loading,
+  userName,
+  etapas,
+  onUpdated,
+  onVerLead,
+}: {
+  followUps: Lead[];
+  loading: boolean;
+  userName: string;
+  etapas: { id: LeadEtapa; label: string; color: string }[];
+  onUpdated: () => void;
+  onVerLead: (lead: Lead) => void;
+}) {
+  const now = new Date();
+  const [marcarModal, setMarcarModal] = useState<Lead | null>(null);
+  const [reagendarModal, setReagendarModal] = useState<Lead | null>(null);
+  const [obs, setObs] = useState('');
+  const [novaData, setNovaData] = useState('');
+  const [novaHora, setNovaHora] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [filtro, setFiltro] = useState<'todos' | 'vencidos' | 'hoje' | 'proximos'>('todos');
+
+  // ── Filtros + colunas ─────────────────────────────────────────────────────
+  const COLUNAS_FU = [
+    { id: 'etapa',       label: 'Etapa',          padrao: true  },
+    { id: 'email',       label: 'E-mail',         padrao: true  },
+    { id: 'plano',       label: 'Plano desejado', padrao: false },
+    { id: 'tags',        label: 'Tags',           padrao: false },
+    { id: 'observacoes', label: 'Observações',    padrao: true  },
+  ];
+  const [filtrosFU, setFiltrosFU]           = useState<FiltroLead[]>([]);
+  const [mostrarFiltrosFU, setMostrarFiltrosFU] = useState(false);
+  const [colunasFUVis, setColunasFUVis]     = useState<Set<string>>(
+    new Set(COLUNAS_FU.filter(c => c.padrao).map(c => c.id)),
+  );
+  const [mostrarColunasFU, setMostrarColunasFU] = useState(false);
+  const colunasFURef = useRef<HTMLDivElement>(null);
+
+  const listagemFiltrada = (filtrosFU.length === 0
+    ? listagem
+    : listagem.filter(l => filtrosFU.every(f => matchLeadFiltro(l, f)))
+  );
+
+  function adicionarFiltroFU() {
+    setFiltrosFU(prev => [...prev, { id: crypto.randomUUID(), campo: 'nome', operador: 'contem', valor: '' }]);
+    setMostrarFiltrosFU(true);
+  }
+  function atualizarFiltroFU(id: string, patch: Partial<FiltroLead>) {
+    setFiltrosFU(prev => prev.map(f => f.id === id ? { ...f, ...patch } : f));
+  }
+
+  // ── Bulk state ─────────────────────────────────────────────────────────────
+  const [selectedFU, setSelectedFU]     = useState<Set<string>>(new Set());
+  const [bulkFUModal, setBulkFUModal]   = useState<'editar' | 'reagendar' | null>(null);
+  const [bulkFUField, setBulkFUField]   = useState<'etapa' | 'observacoes' | 'tags'>('etapa');
+  const [bulkFUValue, setBulkFUValue]   = useState('');
+  const [bulkFUData, setBulkFUData]     = useState('');
+  const [bulkFUHora, setBulkFUHora]     = useState('');
+  const [bulkFUando, setBulkFUando]     = useState(false);
+
+  function toggleSelectFU(id: string) {
+    setSelectedFU(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  }
+  function toggleSelectAllFU(list: Lead[]) {
+    if (selectedFU.size === list.length && list.length > 0) setSelectedFU(new Set());
+    else setSelectedFU(new Set(list.map(l => l.id)));
+  }
+
+  async function handleBulkFUFeito() {
+    if (selectedFU.size === 0) return;
+    setBulkFUando(true);
+    try {
+      await Promise.all([...selectedFU].map(id =>
+        marcarFollowUpFeito(id, 'Follow-up realizado em massa', userName),
+      ));
+      setSelectedFU(new Set());
+      onUpdated();
+    } finally { setBulkFUando(false); }
+  }
+
+  async function handleBulkFUReagendar() {
+    if (!bulkFUData) return;
+    setBulkFUando(true);
+    try {
+      const dt = bulkFUHora ? `${bulkFUData}T${bulkFUHora}:00` : `${bulkFUData}T09:00:00`;
+      const dtFormatada = new Date(dt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+      await Promise.all([...selectedFU].map(id =>
+        updateLead(id, { proximoFollowUp: dt })
+          .then(() => addInteracao(id, 'anotacao', `Follow-up reagendado para ${dtFormatada}`, userName)),
+      ));
+      setBulkFUModal(null); setBulkFUData(''); setBulkFUHora('');
+      setSelectedFU(new Set());
+      onUpdated();
+    } finally { setBulkFUando(false); }
+  }
+
+  async function handleBulkFUEdit() {
+    if (selectedFU.size === 0) return;
+    setBulkFUando(true);
+    try {
+      const patch: Parameters<typeof updateLead>[1] = {};
+      if (bulkFUField === 'etapa')       patch.etapa = bulkFUValue as LeadEtapa;
+      if (bulkFUField === 'observacoes') patch.observacoes = bulkFUValue;
+      if (bulkFUField === 'tags')        patch.tags = bulkFUValue.split(',').map(t => t.trim()).filter(Boolean);
+      await Promise.all([...selectedFU].map(id => updateLead(id, patch)));
+      setBulkFUModal(null); setBulkFUValue('');
+      setSelectedFU(new Set());
+      onUpdated();
+    } finally { setBulkFUando(false); }
+  }
+
+  const vencidos = followUps.filter(l => l.proximoFollowUp && new Date(l.proximoFollowUp) < now);
+  const hoje     = followUps.filter(l => {
+    if (!l.proximoFollowUp) return false;
+    const d = new Date(l.proximoFollowUp);
+    return d >= now && d.toDateString() === now.toDateString();
+  });
+  const proximos = followUps.filter(l => {
+    if (!l.proximoFollowUp) return false;
+    const d = new Date(l.proximoFollowUp);
+    const amanha = new Date(now); amanha.setDate(amanha.getDate() + 1);
+    return d > now && d.toDateString() !== now.toDateString();
+  });
+
+  const listagem = filtro === 'vencidos' ? vencidos
+    : filtro === 'hoje' ? hoje
+    : filtro === 'proximos' ? proximos
+    : followUps;
+
+  async function handleMarcarFeito() {
+    if (!marcarModal) return;
+    setSalvando(true);
+    try {
+      // marcarFollowUpFeito já limpa proximo_follow_up e registra interação se obs informado
+      // Garante que sempre registra a conclusão, mesmo sem observação
+      const descricao = obs.trim() || 'Follow-up realizado';
+      await marcarFollowUpFeito(marcarModal.id, descricao, userName);
+      setMarcarModal(null); setObs('');
+      onUpdated();
+    } finally { setSalvando(false); }
+  }
+
+  async function handleReagendar() {
+    if (!reagendarModal || !novaData) return;
+    setSalvando(true);
+    try {
+      const dt = novaHora ? `${novaData}T${novaHora}:00` : `${novaData}T09:00:00`;
+      const dtFormatada = new Date(dt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+      await updateLead(reagendarModal.id, { proximoFollowUp: dt });
+      // Registra o reagendamento como interação
+      await addInteracao(
+        reagendarModal.id,
+        'anotacao',
+        `Follow-up reagendado para ${dtFormatada}`,
+        userName,
+      );
+      setReagendarModal(null); setNovaData(''); setNovaHora('');
+      onUpdated();
+    } finally { setSalvando(false); }
+  }
+
+  function fmtFollowUp(iso: string) {
+    const d = new Date(iso);
+    const diff = d.getTime() - now.getTime();
+    const days = Math.round(diff / 86400000);
+    const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    if (diff < 0) return `Vencido há ${Math.abs(days)} dia${Math.abs(days) !== 1 ? 's' : ''} · ${time}`;
+    if (days === 0) return `Hoje · ${time}`;
+    if (days === 1) return `Amanhã · ${time}`;
+    return `${d.toLocaleDateString('pt-BR')} · ${time}`;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* KPIs */}
+      <div className="grid grid-cols-3 gap-4">
+        <button onClick={() => setFiltro('vencidos')}
+          className={`p-4 rounded-sm border-2 text-left transition-colors ${filtro === 'vencidos' ? 'border-red-400 bg-red-50' : 'border-cream-200 bg-white hover:border-red-300'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <AlertCircle size={16} className="text-red-500" />
+            <span className="text-xs font-mono uppercase tracking-wider text-charcoal-500">Vencidos</span>
+          </div>
+          <p className="text-2xl font-serif text-red-600">{vencidos.length}</p>
+        </button>
+        <button onClick={() => setFiltro('hoje')}
+          className={`p-4 rounded-sm border-2 text-left transition-colors ${filtro === 'hoje' ? 'border-amber-400 bg-amber-50' : 'border-cream-200 bg-white hover:border-amber-300'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <Clock size={16} className="text-amber-500" />
+            <span className="text-xs font-mono uppercase tracking-wider text-charcoal-500">Hoje</span>
+          </div>
+          <p className="text-2xl font-serif text-amber-600">{hoje.length}</p>
+        </button>
+        <button onClick={() => setFiltro('proximos')}
+          className={`p-4 rounded-sm border-2 text-left transition-colors ${filtro === 'proximos' ? 'border-forest-400 bg-forest-50' : 'border-cream-200 bg-white hover:border-forest-300'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <CalendarCheck size={16} className="text-forest-500" />
+            <span className="text-xs font-mono uppercase tracking-wider text-charcoal-500">Próximos</span>
+          </div>
+          <p className="text-2xl font-serif text-forest-600">{proximos.length}</p>
+        </button>
+      </div>
+
+      {/* Toolbar: filtros + colunas + filtros de período */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Filtro de período */}
+          {(['todos', 'vencidos', 'hoje', 'proximos'] as const).map(f => (
+            <button key={f} onClick={() => { setFiltro(f); setSelectedFU(new Set()); }}
+              className={`px-3 py-1.5 text-xs rounded-sm border transition-colors capitalize ${
+                filtro === f ? 'bg-charcoal-700 text-cream-100 border-charcoal-700' : 'bg-white text-charcoal-500 border-cream-300 hover:border-charcoal-400'
+              }`}>
+              {f === 'todos' ? 'Todos' : f === 'vencidos' ? 'Vencidos' : f === 'hoje' ? 'Hoje' : 'Próximos'}
+            </button>
+          ))}
+
+          <div className="h-4 w-px bg-cream-200" />
+
+          {/* Filtros dinâmicos */}
+          <button
+            onClick={() => setMostrarFiltrosFU(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-sm border transition-colors ${mostrarFiltrosFU || filtrosFU.length > 0 ? 'bg-forest-50 border-forest-300 text-forest-700' : 'bg-white text-charcoal-500 border-cream-300 hover:border-forest-300'}`}
+          >
+            <SlidersHorizontal size={12} /> Filtros
+            {filtrosFU.length > 0 && <span className="ml-0.5 bg-forest-500 text-white text-[10px] rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">{filtrosFU.length}</span>}
+            <ChevronDown size={10} className={`transition-transform ${mostrarFiltrosFU ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Colunas */}
+          <div className="relative" ref={colunasFURef}>
+            <button
+              onClick={() => setMostrarColunasFU(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-sm border transition-colors ${mostrarColunasFU ? 'bg-forest-50 border-forest-300 text-forest-700' : 'bg-white text-charcoal-500 border-cream-300 hover:border-forest-300'}`}
+            >
+              <Columns2 size={12} /> Campos
+              <ChevronDown size={10} className={`transition-transform ${mostrarColunasFU ? 'rotate-180' : ''}`} />
+            </button>
+            {mostrarColunasFU && (
+              <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-cream-200 rounded-sm shadow-lg p-3 w-44 space-y-1">
+                {COLUNAS_FU.map(col => (
+                  <label key={col.id} className="flex items-center gap-2 text-sm text-charcoal-600 cursor-pointer hover:text-charcoal-800 py-0.5">
+                    <input type="checkbox" checked={colunasFUVis.has(col.id)} onChange={() => setColunasFUVis(prev => { const s = new Set(prev); s.has(col.id) ? s.delete(col.id) : s.add(col.id); return s; })} className="w-3.5 h-3.5 accent-forest-500" />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {filtrosFU.length > 0 && (
+            <button onClick={() => setFiltrosFU([])} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">Limpar filtros</button>
+          )}
+
+          <span className="ml-auto text-xs text-charcoal-400">{listagemFiltrada.length} follow-up{listagemFiltrada.length !== 1 ? 's' : ''}</span>
+        </div>
+
+        {/* Painel de filtros dinâmicos */}
+        {mostrarFiltrosFU && (
+          <div className="px-3 py-3 bg-cream-50 border border-cream-200 rounded-sm space-y-2">
+            {filtrosFU.length === 0 && <p className="text-xs text-charcoal-400">Nenhum filtro ativo.</p>}
+            {filtrosFU.map(f => {
+              const tipo = CAMPOS_LEAD.find(c => c.value === f.campo)?.tipo ?? 'texto';
+              const ops  = OPERADORES_LEAD[tipo] ?? OPERADORES_LEAD.texto;
+              const semValor = f.operador === 'tem' || f.operador === 'nao_tem';
+              return (
+                <div key={f.id} className="flex flex-wrap items-center gap-2">
+                  <select value={f.campo} onChange={e => atualizarFiltroFU(f.id, { campo: e.target.value, operador: (OPERADORES_LEAD[CAMPOS_LEAD.find(c=>c.value===e.target.value)?.tipo??'texto']??OPERADORES_LEAD.texto)[0].value, valor: '' })} className="px-2 py-1.5 text-xs border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                    {CAMPOS_LEAD.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                  <select value={f.operador} onChange={e => atualizarFiltroFU(f.id, { operador: e.target.value })} className="px-2 py-1.5 text-xs border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                    {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {!semValor && (
+                    tipo === 'origem' ? (
+                      <select value={f.valor} onChange={e => atualizarFiltroFU(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-xs border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                        <option value="">Selecione…</option>
+                        {['manual','checkout','reserva','blog','social','indicacao','landing'].map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : tipo === 'etapa' ? (
+                      <select value={f.valor} onChange={e => atualizarFiltroFU(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-xs border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                        <option value="">Selecione…</option>
+                        {etapas.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+                      </select>
+                    ) : tipo === 'data' ? (
+                      <input type="date" value={f.valor} onChange={e => atualizarFiltroFU(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-xs border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400" />
+                    ) : (
+                      <input type="text" value={f.valor} onChange={e => atualizarFiltroFU(f.id, { valor: e.target.value })} placeholder="Valor…" className="w-40 px-2 py-1.5 text-xs border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400" />
+                    )
+                  )}
+                  <button onClick={() => setFiltrosFU(prev => prev.filter(x => x.id !== f.id))} className="p-1 text-charcoal-400 hover:text-red-500 rounded-sm transition-colors"><X size={12} /></button>
+                </div>
+              );
+            })}
+            <button onClick={adicionarFiltroFU} className="flex items-center gap-1.5 text-xs text-forest-600 hover:text-forest-700 font-medium mt-1">
+              <Plus size={12} /> Adicionar filtro
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Bulk bar */}
+      {selectedFU.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 py-2 px-3 bg-forest-50 border border-forest-200 rounded-sm">
+          <span className="text-sm font-medium text-charcoal-600">
+            <SquareCheck size={14} className="inline mr-1.5 text-forest-500" />
+            {selectedFU.size} selecionado{selectedFU.size !== 1 ? 's' : ''}
+          </span>
+          <button onClick={() => setSelectedFU(new Set(listagemFiltrada.map(l => l.id)))} className="text-xs text-forest-600 hover:text-forest-700 underline underline-offset-2">
+            Selecionar todos ({listagemFiltrada.length})
+          </button>
+          <button onClick={() => setSelectedFU(new Set())} className="text-xs text-charcoal-400 hover:text-charcoal-600 underline underline-offset-2">
+            Desmarcar
+          </button>
+          <div className="h-4 w-px bg-cream-300" />
+          <button
+            onClick={handleBulkFUFeito}
+            disabled={bulkFUando}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-forest-500 text-white rounded-sm hover:bg-forest-600 disabled:opacity-60 transition-colors"
+          >
+            {bulkFUando ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+            Marcar feitos
+          </button>
+          <button
+            onClick={() => { setBulkFUData(''); setBulkFUHora(''); setBulkFUModal('reagendar'); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-amber-300 text-amber-700 rounded-sm hover:bg-amber-50 transition-colors"
+          >
+            <Calendar size={12} /> Reagendar
+          </button>
+          <button
+            onClick={() => { setBulkFUField('etapa'); setBulkFUValue(''); setBulkFUModal('editar'); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-cream-300 text-charcoal-600 rounded-sm hover:bg-cream-50 transition-colors"
+          >
+            <Pencil size={12} /> Editar
+          </button>
+        </div>
+      )}
+
+      {/* Lista */}
+      {loading ? (
+        <div className="flex items-center justify-center py-16 gap-2 text-charcoal-400">
+          <RefreshCw size={16} className="animate-spin" /> Carregando follow-ups...
+        </div>
+      ) : listagemFiltrada.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-charcoal-300">
+          <CalendarCheck size={40} className="opacity-40" />
+          <p className="text-sm">
+            {filtrosFU.length > 0 ? 'Nenhum resultado para os filtros aplicados' : `Nenhum follow-up ${filtro !== 'todos' ? `na categoria "${filtro}"` : 'agendado'}`}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {/* Select-all row */}
+          {listagemFiltrada.length > 0 && (
+            <div className="flex items-center gap-2 px-1 pb-1 border-b border-cream-100">
+              <input
+                type="checkbox"
+                checked={listagemFiltrada.length > 0 && selectedFU.size === listagemFiltrada.length}
+                onChange={() => toggleSelectAllFU(listagemFiltrada)}
+                className="w-3.5 h-3.5 accent-forest-500 cursor-pointer"
+              />
+              <span className="text-xs text-charcoal-400">Selecionar todos desta página</span>
+            </div>
+          )}
+
+          {listagemFiltrada.map(lead => {
+            const etapa = etapas.find(e => e.id === lead.etapa);
+            const isVencido = lead.proximoFollowUp ? new Date(lead.proximoFollowUp) < now : false;
+            const isFUSelected = selectedFU.has(lead.id);
+            return (
+              <div key={lead.id}
+                onClick={() => onVerLead(lead)}
+                className={`flex items-center gap-4 p-4 bg-white rounded-sm border transition-all cursor-pointer ${
+                  isFUSelected
+                    ? 'border-forest-300 bg-forest-50/60'
+                    : isVencido
+                    ? 'border-red-200 bg-red-50/30 hover:border-red-400 hover:shadow-sm'
+                    : 'border-cream-200 hover:border-forest-300 hover:shadow-sm'
+                }`}>
+                {/* Checkbox */}
+                <div onClick={e => { e.stopPropagation(); toggleSelectFU(lead.id); }} className="flex-shrink-0">
+                  <input type="checkbox" checked={isFUSelected} onChange={() => toggleSelectFU(lead.id)}
+                    className="w-3.5 h-3.5 accent-forest-500 cursor-pointer" />
+                </div>
+
+                {/* Status icon */}
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  isVencido ? 'bg-red-100' : 'bg-amber-100'
+                }`}>
+                  {isVencido
+                    ? <AlertCircle size={14} className="text-red-500" />
+                    : <Clock size={14} className="text-amber-500" />
+                  }
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-charcoal-700">{lead.nome}</p>
+                    {colunasFUVis.has('etapa') && etapa && (
+                      <span className={`px-1.5 py-0.5 text-[10px] rounded border ${etapa.color}`}>{etapa.label}</span>
+                    )}
+                  </div>
+                  {colunasFUVis.has('email') && <p className="text-xs text-charcoal-400">{lead.email}</p>}
+                  {lead.proximoFollowUp && (
+                    <p className={`text-xs font-medium mt-0.5 ${isVencido ? 'text-red-500' : 'text-amber-600'}`}>
+                      {fmtFollowUp(lead.proximoFollowUp)}
+                    </p>
+                  )}
+                  {colunasFUVis.has('plano') && lead.planoDesejado && (
+                    <p className="text-xs text-forest-600 mt-0.5">→ {lead.planoDesejado}</p>
+                  )}
+                  {colunasFUVis.has('tags') && (lead.tags ?? []).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {lead.tags.map(t => <span key={t} className="px-1.5 py-0.5 bg-cream-100 text-charcoal-500 text-[10px] rounded border border-cream-200">{t}</span>)}
+                    </div>
+                  )}
+                  {colunasFUVis.has('observacoes') && lead.observacoes && (
+                    <p className="text-xs text-charcoal-400 mt-0.5 line-clamp-1">{lead.observacoes}</p>
+                  )}
+                </div>
+
+                {/* Actions — stopPropagation to prevent row click */}
+                <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => { setReagendarModal(lead); setNovaData(''); setNovaHora(''); }}
+                    className="p-1.5 text-charcoal-400 hover:text-amber-500 hover:bg-amber-50 rounded-sm transition-colors" title="Reagendar">
+                    <Calendar size={14} />
+                  </button>
+                  <button onClick={() => { setMarcarModal(lead); setObs(''); }}
+                    className="p-1.5 text-charcoal-400 hover:text-forest-600 hover:bg-forest-50 rounded-sm transition-colors" title="Marcar como feito">
+                    <CheckCircle2 size={14} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal bulk — reagendar */}
+      {bulkFUModal === 'reagendar' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-charcoal-700/60 backdrop-blur-sm" onClick={() => setBulkFUModal(null)} />
+          <div className="relative bg-white rounded-sm shadow-xl w-full max-w-sm border border-cream-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-cream-200 bg-cream-50">
+              <div>
+                <p className="font-mono text-[9px] tracking-[0.3em] uppercase text-charcoal-400">Reagendar em massa</p>
+                <h3 className="font-editorial text-lg text-charcoal-700">{selectedFU.size} follow-up{selectedFU.size !== 1 ? 's' : ''}</h3>
+              </div>
+              <button onClick={() => setBulkFUModal(null)} className="text-charcoal-400 hover:text-charcoal-700 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Nova data</label>
+                <input type="date" value={bulkFUData} onChange={e => setBulkFUData(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-3 py-2 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Horário (opcional)</label>
+                <input type="time" value={bulkFUHora} onChange={e => setBulkFUHora(e.target.value)}
+                  className="w-full px-3 py-2 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400" />
+              </div>
+              <div className="flex justify-end gap-3 pt-2 border-t border-cream-200">
+                <Button variant="ghost" onClick={() => setBulkFUModal(null)} disabled={bulkFUando}>Cancelar</Button>
+                <Button variant="primary" onClick={handleBulkFUReagendar} disabled={bulkFUando || !bulkFUData}>
+                  {bulkFUando ? <Loader2 size={14} className="animate-spin" /> : <Calendar size={14} />}
+                  {bulkFUando ? 'Reagendando…' : `Reagendar ${selectedFU.size}`}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal bulk — editar */}
+      {bulkFUModal === 'editar' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-charcoal-700/60 backdrop-blur-sm" onClick={() => setBulkFUModal(null)} />
+          <div className="relative bg-white rounded-sm shadow-xl w-full max-w-sm border border-cream-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-cream-200 bg-cream-50">
+              <div>
+                <p className="font-mono text-[9px] tracking-[0.3em] uppercase text-charcoal-400">Editar em massa</p>
+                <h3 className="font-editorial text-lg text-charcoal-700">{selectedFU.size} follow-up{selectedFU.size !== 1 ? 's' : ''}</h3>
+              </div>
+              <button onClick={() => setBulkFUModal(null)} className="text-charcoal-400 hover:text-charcoal-700 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Campo</label>
+                <select value={bulkFUField} onChange={e => { setBulkFUField(e.target.value as typeof bulkFUField); setBulkFUValue(''); }}
+                  className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                  <option value="etapa">Etapa</option>
+                  <option value="observacoes">Observações (substituir)</option>
+                  <option value="tags">Tags (substituir)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Valor</label>
+                {bulkFUField === 'etapa' ? (
+                  <select value={bulkFUValue} onChange={e => setBulkFUValue(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                    <option value="">Selecione…</option>
+                    {etapas.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+                  </select>
+                ) : bulkFUField === 'observacoes' ? (
+                  <textarea value={bulkFUValue} onChange={e => setBulkFUValue(e.target.value)} rows={3}
+                    className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400 resize-none" />
+                ) : (
+                  <input type="text" value={bulkFUValue} onChange={e => setBulkFUValue(e.target.value)}
+                    placeholder="tag1, tag2, tag3"
+                    className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400" />
+                )}
+              </div>
+              <div className="flex justify-end gap-3 pt-2 border-t border-cream-200">
+                <Button variant="ghost" onClick={() => setBulkFUModal(null)} disabled={bulkFUando}>Cancelar</Button>
+                <Button variant="primary" onClick={handleBulkFUEdit} disabled={bulkFUando || !bulkFUValue.trim()}>
+                  {bulkFUando ? <Loader2 size={14} className="animate-spin" /> : <SquareCheck size={14} />}
+                  {bulkFUando ? 'Aplicando…' : `Aplicar a ${selectedFU.size}`}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal — marcar feito */}
+      {marcarModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-charcoal-700/60 backdrop-blur-sm" onClick={() => setMarcarModal(null)} />
+          <div className="relative bg-white rounded-sm shadow-xl w-full max-w-md border border-cream-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-cream-200 bg-cream-50">
+              <div>
+                <p className="font-mono text-[9px] tracking-[0.3em] uppercase text-charcoal-400">Follow-up realizado</p>
+                <h3 className="font-editorial text-lg text-charcoal-700">{marcarModal.nome}</h3>
+              </div>
+              <button onClick={() => setMarcarModal(null)} className="text-charcoal-400 hover:text-charcoal-700 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">
+                  Observação (opcional)
+                </label>
+                <textarea rows={3} value={obs} onChange={e => setObs(e.target.value)}
+                  placeholder="Como foi o contato? O que ficou combinado?"
+                  className="w-full px-3 py-2 border border-cream-300 rounded-sm text-sm resize-none focus:outline-none focus:ring-1 focus:ring-forest-400" />
+              </div>
+              <div className="flex justify-end gap-3 pt-2 border-t border-cream-200">
+                <Button variant="ghost" onClick={() => setMarcarModal(null)} disabled={salvando}>Cancelar</Button>
+                <Button variant="primary" onClick={handleMarcarFeito} disabled={salvando}>
+                  {salvando ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                  {salvando ? 'Salvando...' : 'Marcar como feito'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal — reagendar */}
+      {reagendarModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-charcoal-700/60 backdrop-blur-sm" onClick={() => setReagendarModal(null)} />
+          <div className="relative bg-white rounded-sm shadow-xl w-full max-w-sm border border-cream-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-cream-200 bg-cream-50">
+              <div>
+                <p className="font-mono text-[9px] tracking-[0.3em] uppercase text-charcoal-400">Reagendar follow-up</p>
+                <h3 className="font-editorial text-lg text-charcoal-700">{reagendarModal.nome}</h3>
+              </div>
+              <button onClick={() => setReagendarModal(null)} className="text-charcoal-400 hover:text-charcoal-700 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Data</label>
+                <input type="date" value={novaData} onChange={e => setNovaData(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-3 py-2 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Horário (opcional)</label>
+                <input type="time" value={novaHora} onChange={e => setNovaHora(e.target.value)}
+                  className="w-full px-3 py-2 border border-cream-300 rounded-sm text-sm focus:outline-none focus:ring-1 focus:ring-forest-400" />
+              </div>
+              <div className="flex justify-end gap-3 pt-2 border-t border-cream-200">
+                <Button variant="ghost" onClick={() => setReagendarModal(null)} disabled={salvando}>Cancelar</Button>
+                <Button variant="primary" onClick={handleReagendar} disabled={salvando || !novaData}>
+                  {salvando ? <RefreshCw size={14} className="animate-spin" /> : <Calendar size={14} />}
+                  {salvando ? 'Salvando...' : 'Reagendar'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────────────────────
 
+function pathToTab(pathname: string) {
+  if (pathname.includes('/followup')) return 'followup';
+  if (pathname.includes('/clientes'))  return 'clientes';
+  if (pathname.includes('/leads'))     return 'lista';
+  return 'funil';
+}
+
 export function AdminCRM() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   // ── Leads ──────────────────────────────────────────────────────────────────
   const [leads, setLeads]               = useState<Lead[]>([]);
-  const [tab, setTab]                   = useState('funil');
+  const [tab, setTab]                   = useState(() => pathToTab(location.pathname));
+  const [followUps, setFollowUps]       = useState<Lead[]>([]);
+  const [loadingFollowUps, setLoadingFollowUps] = useState(false);
+
+  // ── Bulk selection + edit + export + import ────────────────────────────────
+  const [selectedLeads, setSelectedLeads]   = useState<Set<string>>(new Set());
+  const [bulkEditModal, setBulkEditModal]   = useState(false);
+  const [bulkEditField, setBulkEditField]   = useState<'etapa' | 'responsavel' | 'proximoFollowUp' | 'tags' | 'observacoes'>('etapa');
+  const [bulkEditValue, setBulkEditValue]   = useState('');
+  const [bulkEditando, setBulkEditando]     = useState(false);
+  const [exportDropdown, setExportDropdown] = useState(false);
+  const exportRef                           = useRef<HTMLDivElement>(null);
+  const [importModal, setImportModal]       = useState(false);
+  const [importPreview, setImportPreview]   = useState<{ nome: string; email: string; telefone: string; origem: string; etapa: LeadEtapa }[]>([]);
+  const [importando, setImportando]         = useState(false);
+  const importFileRef                       = useRef<HTMLInputElement>(null);
+
+  // ── Filtros e colunas — Leads ──────────────────────────────────────────────
+  const [filtrosLead, setFiltrosLead]           = useState<FiltroLead[]>([]);
+  const [mostrarFiltrosLead, setMostrarFiltrosLead] = useState(false);
+  const [colunasLeadVis, setColunasLeadVis]     = useState<Set<string>>(
+    () => new Set(COLUNAS_LEAD.filter(c => c.padrao).map(c => c.id)),
+  );
+  const [mostrarColunasLead, setMostrarColunasLead] = useState(false);
+  const colunasLeadRef = useRef<HTMLDivElement>(null);
+
+  // ── Colunas cards Funil ────────────────────────────────────────────────────
+  const [colunasFunilCard, setColunasFunilCard] = useState<Set<string>>(
+    () => new Set(COLUNAS_FUNIL_CARD.filter(c => c.padrao).map(c => c.id)),
+  );
+  const [mostrarColunasFunil, setMostrarColunasFunil] = useState(false);
+  const colunasFunilRef = useRef<HTMLDivElement>(null);
+
+  // ── Clientes bulk ──────────────────────────────────────────────────────────
+  const [selectedClis, setSelectedClis]         = useState<Set<string>>(new Set());
+  const [bulkCliModal, setBulkCliModal]         = useState(false);
+  const [bulkCliField, setBulkCliField]         = useState<'preferenciaCafe' | 'tipoMoagem'>('preferenciaCafe');
+  const [bulkCliValue, setBulkCliValue]         = useState('');
+  const [bulkCliando, setBulkCliando]           = useState(false);
+
+  // Sync tab → URL and URL → tab
+  useEffect(() => { setTab(pathToTab(location.pathname)); }, [location.pathname]);
   const [search, setSearch]             = useState('');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [novoModal, setNovoModal]       = useState(false);
@@ -329,12 +1076,21 @@ export function AdminCRM() {
     getClientes().then(setClientes).catch(console.error);
   }, []);
 
+  // Carrega follow-ups quando a aba for selecionada
+  useEffect(() => {
+    if (tab !== 'followup') return;
+    setLoadingFollowUps(true);
+    getFollowUps().then(setFollowUps).catch(console.error).finally(() => setLoadingFollowUps(false));
+  }, [tab]);
+
   // ── Filtros leads ──────────────────────────────────────────────────────────
-  const filteredLeads = leads.filter(l =>
-    search === '' ||
-    l.nome.toLowerCase().includes(search.toLowerCase()) ||
-    l.email.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredLeads = leads.filter(l => {
+    const matchSearch = search === ''
+      || l.nome.toLowerCase().includes(search.toLowerCase())
+      || l.email.toLowerCase().includes(search.toLowerCase());
+    const matchFiltros = filtrosLead.every(f => matchLeadFiltro(l, f));
+    return matchSearch && matchFiltros;
+  });
   const leadsPorEtapa = (etapa: LeadEtapa) => filteredLeads.filter(l => l.etapa === etapa);
 
   // Leads vinculados ao cliente selecionado (derivado fora do modal)
@@ -476,16 +1232,259 @@ export function AdminCRM() {
     }
   }
 
+  // ── Bulk selection handlers ────────────────────────────────────────────────
+  function toggleSelectLead(id: string) {
+    setSelectedLeads(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedLeads.size === filteredLeads.length && filteredLeads.length > 0) {
+      setSelectedLeads(new Set());
+    } else {
+      setSelectedLeads(new Set(filteredLeads.map(l => l.id)));
+    }
+  }
+
+  async function handleBulkEdit() {
+    if (selectedLeads.size === 0) return;
+    setBulkEditando(true);
+    try {
+      const patch: Parameters<typeof updateLead>[1] = {};
+      if (bulkEditField === 'etapa')             patch.etapa = bulkEditValue as LeadEtapa;
+      else if (bulkEditField === 'responsavel')  patch.responsavel = bulkEditValue;
+      else if (bulkEditField === 'proximoFollowUp') patch.proximoFollowUp = bulkEditValue || undefined;
+      else if (bulkEditField === 'observacoes')  patch.observacoes = bulkEditValue;
+      else if (bulkEditField === 'tags')         patch.tags = bulkEditValue.split(',').map(t => t.trim()).filter(Boolean);
+      await Promise.all([...selectedLeads].map(id => updateLead(id, patch)));
+      setLeads(prev => prev.map(l => selectedLeads.has(l.id) ? { ...l, ...patch } : l));
+      setBulkEditModal(false);
+      setBulkEditValue('');
+      setSelectedLeads(new Set());
+    } catch {
+      alert('Erro ao aplicar edição em massa.');
+    } finally {
+      setBulkEditando(false);
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedLeads.size === 0) return;
+    if (!confirm(`Excluir ${selectedLeads.size} lead(s) selecionado(s)? Esta ação não pode ser desfeita.`)) return;
+    try {
+      const { deleteLead } = await import('../../services/leads.service');
+      await Promise.all([...selectedLeads].map(id => deleteLead(id)));
+      setLeads(prev => prev.filter(l => !selectedLeads.has(l.id)));
+      setSelectedLeads(new Set());
+    } catch {
+      alert('Erro ao excluir leads.');
+    }
+  }
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+  function exportLeads(format: 'csv' | 'json' | 'pdf') {
+    const data = selectedLeads.size > 0
+      ? filteredLeads.filter(l => selectedLeads.has(l.id))
+      : filteredLeads;
+
+    if (format === 'csv') {
+      const BOM = '\uFEFF';
+      const header = 'Nome,E-mail,Telefone,Origem,Etapa,Plano,Follow-up,Tags,Observações';
+      const rows = data.map(l => [
+        `"${(l.nome ?? '').replace(/"/g, '""')}"`,
+        `"${(l.email ?? '').replace(/"/g, '""')}"`,
+        `"${(l.telefone ?? '')}"`,
+        `"${l.origem}"`,
+        `"${etapas.find(e => e.id === l.etapa)?.label ?? l.etapa}"`,
+        `"${l.planoDesejado ?? ''}"`,
+        `"${l.proximoFollowUp ? new Date(l.proximoFollowUp).toLocaleDateString('pt-BR') : ''}"`,
+        `"${(l.tags ?? []).join('; ')}"`,
+        `"${(l.observacoes ?? '').replace(/"/g, '""')}"`,
+      ].join(','));
+      const csv = BOM + [header, ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'leads.csv'; a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === 'json') {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'leads.json'; a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Leads — Das Matas</title>
+        <style>body{font-family:sans-serif;font-size:11px;color:#333;padding:20px}
+        h1{font-size:16px;margin-bottom:4px}p{color:#888;margin:0 0 12px;font-size:10px}
+        table{width:100%;border-collapse:collapse}
+        th{background:#f5f0e8;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#666;border-bottom:2px solid #e0d8c8}
+        td{padding:5px 8px;border-bottom:1px solid #f0ebe0;font-size:11px}
+        tr:nth-child(even) td{background:#faf8f4}
+        @media print{body{padding:0}}</style>
+      </head><body>
+        <h1>Lista de Leads — Das Matas</h1>
+        <p>Gerado em ${new Date().toLocaleDateString('pt-BR')} · ${data.length} lead(s)</p>
+        <table><thead><tr><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Origem</th><th>Etapa</th><th>Plano</th><th>Follow-up</th><th>Tags</th></tr></thead>
+        <tbody>${data.map(l => `<tr>
+          <td>${l.nome}</td><td>${l.email}</td><td>${l.telefone ?? ''}</td><td>${l.origem}</td>
+          <td>${etapas.find(e => e.id === l.etapa)?.label ?? l.etapa}</td>
+          <td>${l.planoDesejado ?? ''}</td>
+          <td>${l.proximoFollowUp ? new Date(l.proximoFollowUp).toLocaleDateString('pt-BR') : ''}</td>
+          <td>${(l.tags ?? []).join(', ')}</td>
+        </tr>`).join('')}</tbody></table>
+      </body></html>`;
+      const w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => { w.print(); }, 400);
+    }
+    setExportDropdown(false);
+  }
+
+  // ── Import CSV ─────────────────────────────────────────────────────────────
+  function parseImportCSV(text: string) {
+    // Strip BOM if present
+    const clean = text.replace(/^\uFEFF/, '');
+    const lines = clean.trim().split(/\r?\n/);
+    // Detect header row
+    const firstLow = lines[0].toLowerCase();
+    const hasHeader = firstLow.includes('nome') || firstLow.includes('email') || firstLow.includes('telefone');
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    const origensValidas = new Set(['manual', 'checkout', 'reserva', 'blog', 'social', 'indicacao', 'landing']);
+    const etapasValidas  = new Set(etapas.map(e => e.id));
+
+    return dataLines.map(line => {
+      const parts: string[] = [];
+      let cur = '', inQ = false;
+      for (const ch of line) {
+        if (ch === '"') { inQ = !inQ; continue; }
+        if ((ch === ',' || ch === ';') && !inQ) { parts.push(cur.trim()); cur = ''; continue; }
+        cur += ch;
+      }
+      parts.push(cur.trim());
+      const origem = (parts[3] ?? '').toLowerCase().trim();
+      const etapa  = (parts[4] ?? '').toLowerCase().trim();
+      return {
+        nome:     parts[0] ?? '',
+        telefone: parts[1] ?? '',
+        email:    parts[2] ?? '',
+        origem:   origensValidas.has(origem) ? origem : 'manual',
+        etapa:    etapasValidas.has(etapa as LeadEtapa) ? etapa as LeadEtapa : 'novo' as LeadEtapa,
+      };
+    }).filter(r => r.nome.trim() && r.email.trim());
+  }
+
+  function handleImportFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const text = e.target?.result as string;
+      setImportPreview(parseImportCSV(text));
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+
+  async function handleConfirmImport() {
+    if (importPreview.length === 0) return;
+    setImportando(true);
+    let ok = 0, erros = 0;
+    for (const row of importPreview) {
+      try {
+        await createLead({
+          nome:     row.nome,
+          email:    row.email,
+          telefone: row.telefone || undefined,
+          origem:   (row.origem as Lead['origem']) || 'manual',
+          etapa:    row.etapa || 'novo',
+        });
+        ok++;
+      } catch { erros++; }
+    }
+    const updated = await getLeads();
+    setLeads(updated);
+    setImportModal(false);
+    setImportPreview([]);
+    if (erros > 0) alert(`${ok} lead(s) importados. ${erros} erro(s).`);
+    setImportando(false);
+  }
+
+  // ── Clientes bulk handlers ─────────────────────────────────────────────────
+  function toggleSelectCli(id: string) {
+    setSelectedClis(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  }
+
+  function toggleSelectAllCli() {
+    if (selectedClis.size === paginatedCli.length && paginatedCli.length > 0) {
+      setSelectedClis(new Set());
+    } else {
+      setSelectedClis(new Set(paginatedCli.map(c => c.id)));
+    }
+  }
+
+  function selectAllFilteredCli() {
+    setSelectedClis(new Set(filteredCli.map(c => c.id)));
+  }
+
+  async function handleBulkEditCli() {
+    if (selectedClis.size === 0) return;
+    setBulkCliando(true);
+    try {
+      const prefCafe = bulkCliField === 'preferenciaCafe' ? bulkCliValue as 'grao' | 'moido' : undefined;
+      const moagem   = bulkCliField === 'tipoMoagem' ? bulkCliValue : undefined;
+
+      await Promise.all([...selectedClis].map(id => {
+        const cli = clientes.find(c => c.id === id);
+        if (!cli) return Promise.resolve();
+        if (prefCafe) return updateClientePreferencias(id, prefCafe, moagem);
+        if (moagem)   return updateClientePreferencias(id, cli.preferenciaCafe, moagem);
+        return Promise.resolve();
+      }));
+
+      setClientes(prev => prev.map(c => {
+        if (!selectedClis.has(c.id)) return c;
+        if (bulkCliField === 'preferenciaCafe') return { ...c, preferenciaCafe: bulkCliValue as 'grao' | 'moido', tipoMoagem: bulkCliValue === 'grao' ? undefined : c.tipoMoagem };
+        if (bulkCliField === 'tipoMoagem')      return { ...c, tipoMoagem: bulkCliValue as 'fino' | 'medio' | 'grosso' | 'extraGrosso' };
+        return c;
+      }));
+      setBulkCliModal(false);
+      setBulkCliValue('');
+      setSelectedClis(new Set());
+    } catch {
+      alert('Erro ao aplicar edição em massa.');
+    } finally {
+      setBulkCliando(false);
+    }
+  }
+
+  // ── Helpers filtros lead ───────────────────────────────────────────────────
+  function adicionarFiltroLead() {
+    setFiltrosLead(prev => [...prev, { id: crypto.randomUUID(), campo: 'nome', operador: 'contem', valor: '' }]);
+    setMostrarFiltrosLead(true);
+  }
+  function atualizarFiltroLead(id: string, patch: Partial<FiltroLead>) {
+    setFiltrosLead(prev => prev.map(f => f.id === id ? { ...f, ...patch } : f));
+  }
+  function toggleColunaLead(id: string) {
+    setColunasLeadVis(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  }
+  function toggleColunaFunilCard(id: string) {
+    setColunasFunilCard(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  }
+
   // fechar config panel ao clicar fora
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
-      if (funilConfigRef.current && !funilConfigRef.current.contains(e.target as Node)) {
-        setShowFunilConfig(false);
-      }
+      if (funilConfigRef.current && !funilConfigRef.current.contains(e.target as Node)) setShowFunilConfig(false);
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setExportDropdown(false);
+      if (colunasLeadRef.current && !colunasLeadRef.current.contains(e.target as Node)) setMostrarColunasLead(false);
+      if (colunasFunilRef.current && !colunasFunilRef.current.contains(e.target as Node)) setMostrarColunasFunil(false);
     }
-    if (showFunilConfig) document.addEventListener('mousedown', onClickOutside);
+    document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [showFunilConfig]);
+  }, []);
 
   // Carrega histórico de etapas quando aba funil é aberta (modal de cliente)
   useEffect(() => {
@@ -585,9 +1584,18 @@ export function AdminCRM() {
           { id: 'funil',    label: 'Funil Visual' },
           { id: 'lista',    label: 'Lista de Leads', count: leads.length },
           { id: 'clientes', label: 'Clientes',        count: clientes.length },
+          { id: 'followup', label: 'Follow-ups',      count: followUps.filter(l => l.proximoFollowUp && new Date(l.proximoFollowUp) <= new Date()).length || undefined },
         ]}
         active={tab}
-        onChange={setTab}
+        onChange={(t: string) => {
+          const routes: Record<string, string> = {
+            funil: '/admin/crm',
+            lista: '/admin/crm/leads',
+            clientes: '/admin/crm/clientes',
+            followup: '/admin/crm/followup',
+          };
+          navigate(routes[t] ?? '/admin/crm');
+        }}
       />
 
       <SearchBar value={search} onChange={setSearch} placeholder="Buscar leads..." className="max-w-md" />
@@ -596,8 +1604,42 @@ export function AdminCRM() {
       {tab === 'funil' && (
         <div className="space-y-3">
 
-          {/* Toolbar: busca + botão de configuração */}
-          <div className="flex items-center gap-3">
+          {/* Toolbar: filtros + colunas etapas + campos do card */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Filtros de lead */}
+            <button
+              onClick={() => setMostrarFiltrosLead(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-sm border transition-colors ${mostrarFiltrosLead || filtrosLead.length > 0 ? 'bg-forest-50 border-forest-300 text-forest-700' : 'bg-white text-charcoal-600 border-cream-300 hover:border-forest-300'}`}
+            >
+              <SlidersHorizontal size={14} /> Filtros
+              {filtrosLead.length > 0 && (
+                <span className="ml-0.5 bg-forest-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none">{filtrosLead.length}</span>
+              )}
+              <ChevronDown size={12} className={`transition-transform ${mostrarFiltrosLead ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Campos do card */}
+            <div className="relative" ref={colunasFunilRef}>
+              <button
+                onClick={() => setMostrarColunasFunil(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-sm border transition-colors ${mostrarColunasFunil ? 'bg-forest-50 border-forest-300 text-forest-700' : 'bg-white text-charcoal-600 border-cream-300 hover:border-forest-300'}`}
+              >
+                <Columns2 size={14} /> Campos do card
+                <ChevronDown size={12} className={`transition-transform ${mostrarColunasFunil ? 'rotate-180' : ''}`} />
+              </button>
+              {mostrarColunasFunil && (
+                <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-cream-200 rounded-sm shadow-lg p-3 w-48 space-y-1">
+                  {COLUNAS_FUNIL_CARD.map(col => (
+                    <label key={col.id} className="flex items-center gap-2 text-sm text-charcoal-600 cursor-pointer hover:text-charcoal-800 py-0.5">
+                      <input type="checkbox" checked={colunasFunilCard.has(col.id)} onChange={() => toggleColunaFunilCard(col.id)} className="w-3.5 h-3.5 accent-forest-500" />
+                      {col.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Etapa-colunas */}
             <div className="relative" ref={funilConfigRef}>
               <button
                 onClick={() => setShowFunilConfig(v => !v)}
@@ -669,7 +1711,57 @@ export function AdminCRM() {
                 </div>
               )}
             </div>
+
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-xs text-charcoal-400">{filteredLeads.length} lead{filteredLeads.length !== 1 ? 's' : ''}</span>
+              {filtrosLead.length > 0 && (
+                <button onClick={() => setFiltrosLead([])} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">Limpar filtros</button>
+              )}
+            </div>
           </div>
+
+          {/* Painel de filtros */}
+          {mostrarFiltrosLead && (
+            <div className="px-4 py-3 bg-cream-50 border border-cream-200 rounded-sm space-y-2">
+              {filtrosLead.length === 0 && <p className="text-sm text-charcoal-400">Nenhum filtro ativo.</p>}
+              {filtrosLead.map(f => {
+                const tipo = CAMPOS_LEAD.find(c => c.value === f.campo)?.tipo ?? 'texto';
+                const ops  = OPERADORES_LEAD[tipo] ?? OPERADORES_LEAD.texto;
+                const semValor = f.operador === 'tem' || f.operador === 'nao_tem';
+                return (
+                  <div key={f.id} className="flex flex-wrap items-center gap-2">
+                    <select value={f.campo} onChange={e => atualizarFiltroLead(f.id, { campo: e.target.value, operador: (OPERADORES_LEAD[CAMPOS_LEAD.find(c=>c.value===e.target.value)?.tipo??'texto']??OPERADORES_LEAD.texto)[0].value, valor: '' })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                      {CAMPOS_LEAD.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                    <select value={f.operador} onChange={e => atualizarFiltroLead(f.id, { operador: e.target.value })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                      {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    {!semValor && (
+                      tipo === 'origem' ? (
+                        <select value={f.valor} onChange={e => atualizarFiltroLead(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                          <option value="">Selecione…</option>
+                          {['manual','checkout','reserva','blog','social','indicacao','landing'].map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : tipo === 'etapa' ? (
+                        <select value={f.valor} onChange={e => atualizarFiltroLead(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                          <option value="">Selecione…</option>
+                          {etapas.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+                        </select>
+                      ) : tipo === 'data' ? (
+                        <input type="date" value={f.valor} onChange={e => atualizarFiltroLead(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400" />
+                      ) : (
+                        <input type="text" value={f.valor} onChange={e => atualizarFiltroLead(f.id, { valor: e.target.value })} placeholder="Valor…" className="w-44 px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400" />
+                      )
+                    )}
+                    <button onClick={() => setFiltrosLead(prev => prev.filter(x => x.id !== f.id))} className="p-1 text-charcoal-400 hover:text-red-500 rounded-sm transition-colors"><X size={14} /></button>
+                  </div>
+                );
+              })}
+              <button onClick={adicionarFiltroLead} className="flex items-center gap-1.5 text-sm text-forest-600 hover:text-forest-700 font-medium mt-1">
+                <Plus size={13} /> Adicionar filtro
+              </button>
+            </div>
+          )}
 
           {/* Colunas do funil */}
           <div
@@ -734,6 +1826,7 @@ export function AdminCRM() {
                           onClick={() => setSelectedLead(lead)}
                           onDragStart={() => { setDragCardLeadId(lead.id); }}
                           onDragEnd={() => { setDragCardLeadId(null); setDragCardOver(null); }}
+                          colunasVis={colunasFunilCard}
                         />
                       ))}
                       {etapaLeads.length === 0 && (
@@ -755,39 +1848,228 @@ export function AdminCRM() {
       {/* ── LISTA DE LEADS ────────────────────────────────────────────────── */}
       {tab === 'lista' && (
         <Card padding={false}>
+          {/* Toolbar */}
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-cream-100">
+            {/* Bulk action bar (visible when rows selected) */}
+            {selectedLeads.size > 0 ? (
+              <>
+                <span className="text-sm font-medium text-charcoal-600">
+                  <SquareCheck size={14} className="inline mr-1.5 text-forest-500" />
+                  {selectedLeads.size} selecionado{selectedLeads.size !== 1 ? 's' : ''}
+                </span>
+                <button
+                  onClick={() => setSelectedLeads(new Set(filteredLeads.map(l => l.id)))}
+                  className="text-xs text-forest-600 hover:text-forest-700 underline underline-offset-2"
+                >
+                  Selecionar todos ({filteredLeads.length})
+                </button>
+                <button
+                  onClick={() => setSelectedLeads(new Set())}
+                  className="text-xs text-charcoal-400 hover:text-charcoal-600 underline underline-offset-2"
+                >
+                  Desmarcar
+                </button>
+                <div className="h-4 w-px bg-cream-300" />
+                <button
+                  onClick={() => { setBulkEditField('etapa'); setBulkEditValue(''); setBulkEditModal(true); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-forest-500 text-white rounded-sm hover:bg-forest-600 transition-colors"
+                >
+                  <Pencil size={13} /> Editar em massa
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-sm hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 size={13} /> Excluir
+                </button>
+              </>
+            ) : (
+              <span className="text-xs text-charcoal-400">{filteredLeads.length} lead{filteredLeads.length !== 1 ? 's' : ''}</span>
+            )}
+
+            <div className="ml-auto flex items-center gap-2">
+              {/* Import button */}
+              <button
+                onClick={() => { setImportPreview([]); setImportModal(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-cream-200 text-charcoal-600 rounded-sm hover:border-forest-300 hover:text-forest-600 transition-colors"
+              >
+                <Upload size={13} /> Importar
+              </button>
+
+              {/* Export dropdown */}
+              <div className="relative" ref={exportRef}>
+                <button
+                  onClick={() => setExportDropdown(v => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-cream-200 text-charcoal-600 rounded-sm hover:border-forest-300 hover:text-forest-600 transition-colors"
+                >
+                  <Download size={13} />
+                  Exportar
+                  {selectedLeads.size > 0 && <span className="ml-1 px-1.5 py-0 bg-forest-100 text-forest-700 text-xs rounded-full">{selectedLeads.size}</span>}
+                  <ChevronDown size={11} className={`transition-transform ${exportDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                {exportDropdown && (
+                  <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-cream-200 rounded-sm shadow-lg py-1 w-44">
+                    <p className="px-3 py-1.5 text-[10px] font-medium text-charcoal-400 uppercase tracking-wider border-b border-cream-100">
+                      {selectedLeads.size > 0 ? `${selectedLeads.size} selecionado(s)` : 'Todos os leads'}
+                    </p>
+                    <button onClick={() => exportLeads('csv')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-charcoal-600 hover:bg-cream-50 transition-colors">
+                      <FileDown size={13} className="text-green-600" /> Excel / CSV
+                    </button>
+                    <button onClick={() => exportLeads('json')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-charcoal-600 hover:bg-cream-50 transition-colors">
+                      <FileDown size={13} className="text-blue-600" /> JSON
+                    </button>
+                    <button onClick={() => exportLeads('pdf')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-charcoal-600 hover:bg-cream-50 transition-colors">
+                      <FileDown size={13} className="text-red-500" /> PDF / Imprimir
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Filtros + colunas (second toolbar row) */}
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-cream-100 bg-cream-50/50">
+            <button
+              onClick={() => setMostrarFiltrosLead(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border transition-colors ${mostrarFiltrosLead || filtrosLead.length > 0 ? 'bg-forest-50 border-forest-300 text-forest-700' : 'border-cream-200 text-charcoal-500 hover:border-forest-300 hover:text-forest-600'}`}
+            >
+              <SlidersHorizontal size={13} /> Filtros
+              {filtrosLead.length > 0 && <span className="ml-0.5 bg-forest-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none">{filtrosLead.length}</span>}
+              <ChevronDown size={11} className={`transition-transform ${mostrarFiltrosLead ? 'rotate-180' : ''}`} />
+            </button>
+
+            <div className="relative" ref={colunasLeadRef}>
+              <button
+                onClick={() => setMostrarColunasLead(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border transition-colors ${mostrarColunasLead ? 'bg-forest-50 border-forest-300 text-forest-700' : 'border-cream-200 text-charcoal-500 hover:border-forest-300 hover:text-forest-600'}`}
+              >
+                <Columns2 size={13} /> Colunas
+                <ChevronDown size={11} className={`transition-transform ${mostrarColunasLead ? 'rotate-180' : ''}`} />
+              </button>
+              {mostrarColunasLead && (
+                <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-cream-200 rounded-sm shadow-lg p-3 w-48 space-y-1">
+                  {COLUNAS_LEAD.map(col => (
+                    <label key={col.id} className="flex items-center gap-2 text-sm text-charcoal-600 cursor-pointer hover:text-charcoal-800 py-0.5">
+                      <input type="checkbox" checked={colunasLeadVis.has(col.id)} onChange={() => toggleColunaLead(col.id)} className="w-3.5 h-3.5 accent-forest-500" />
+                      {col.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {filtrosLead.length > 0 && (
+              <button onClick={() => setFiltrosLead([])} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">Limpar filtros</button>
+            )}
+          </div>
+
+          {/* Painel de filtros */}
+          {mostrarFiltrosLead && (
+            <div className="px-4 py-3 bg-cream-50 border-b border-cream-100 space-y-2">
+              {filtrosLead.length === 0 && <p className="text-sm text-charcoal-400">Nenhum filtro ativo.</p>}
+              {filtrosLead.map(f => {
+                const tipo = CAMPOS_LEAD.find(c => c.value === f.campo)?.tipo ?? 'texto';
+                const ops  = OPERADORES_LEAD[tipo] ?? OPERADORES_LEAD.texto;
+                const semValor = f.operador === 'tem' || f.operador === 'nao_tem';
+                return (
+                  <div key={f.id} className="flex flex-wrap items-center gap-2">
+                    <select value={f.campo} onChange={e => atualizarFiltroLead(f.id, { campo: e.target.value, operador: (OPERADORES_LEAD[CAMPOS_LEAD.find(c=>c.value===e.target.value)?.tipo??'texto']??OPERADORES_LEAD.texto)[0].value, valor: '' })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                      {CAMPOS_LEAD.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                    <select value={f.operador} onChange={e => atualizarFiltroLead(f.id, { operador: e.target.value })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                      {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    {!semValor && (
+                      tipo === 'origem' ? (
+                        <select value={f.valor} onChange={e => atualizarFiltroLead(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                          <option value="">Selecione…</option>
+                          {['manual','checkout','reserva','blog','social','indicacao','landing'].map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : tipo === 'etapa' ? (
+                        <select value={f.valor} onChange={e => atualizarFiltroLead(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400">
+                          <option value="">Selecione…</option>
+                          {etapas.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+                        </select>
+                      ) : tipo === 'data' ? (
+                        <input type="date" value={f.valor} onChange={e => atualizarFiltroLead(f.id, { valor: e.target.value })} className="px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400" />
+                      ) : (
+                        <input type="text" value={f.valor} onChange={e => atualizarFiltroLead(f.id, { valor: e.target.value })} placeholder="Valor…" className="w-44 px-2 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400" />
+                      )
+                    )}
+                    <button onClick={() => setFiltrosLead(prev => prev.filter(x => x.id !== f.id))} className="p-1 text-charcoal-400 hover:text-red-500 rounded-sm transition-colors"><X size={14} /></button>
+                  </div>
+                );
+              })}
+              <button onClick={adicionarFiltroLead} className="flex items-center gap-1.5 text-sm text-forest-600 hover:text-forest-700 font-medium mt-1">
+                <Plus size={13} /> Adicionar filtro
+              </button>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr>
-                  <th className="table-th">Nome</th>
-                  <th className="table-th">Contato</th>
-                  <th className="table-th">Origem</th>
-                  <th className="table-th">Etapa</th>
-                  <th className="table-th">Plano</th>
-                  <th className="table-th">Follow-up</th>
+                  <th className="table-th w-10">
+                    <input type="checkbox" checked={filteredLeads.length > 0 && selectedLeads.size === filteredLeads.length} onChange={toggleSelectAll} className="w-3.5 h-3.5 accent-forest-500 cursor-pointer" />
+                  </th>
+                  {colunasLeadVis.has('nome')        && <th className="table-th">Nome</th>}
+                  {colunasLeadVis.has('contato')     && <th className="table-th">Contato</th>}
+                  {colunasLeadVis.has('origem')      && <th className="table-th">Origem</th>}
+                  {colunasLeadVis.has('etapa')       && <th className="table-th">Etapa</th>}
+                  {colunasLeadVis.has('plano')       && <th className="table-th">Plano</th>}
+                  {colunasLeadVis.has('followup')    && <th className="table-th">Follow-up</th>}
+                  {colunasLeadVis.has('tags')        && <th className="table-th">Tags</th>}
+                  {colunasLeadVis.has('responsavel') && <th className="table-th">Responsável</th>}
+                  {colunasLeadVis.has('observacoes') && <th className="table-th">Observações</th>}
+                  {colunasLeadVis.has('criado')      && <th className="table-th">Entrada</th>}
                   <th className="table-th">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredLeads.map(lead => {
                   const etapa = etapas.find(e => e.id === lead.etapa);
+                  const isSelected = selectedLeads.has(lead.id);
                   return (
-                    <tr key={lead.id} className="border-t border-cream-100 hover:bg-cream-50 cursor-pointer" onClick={() => setSelectedLead(lead)}>
-                      <td className="table-td font-medium text-charcoal-700">{lead.nome}</td>
-                      <td className="table-td">
-                        <p className="text-sm text-charcoal-600">{lead.email}</p>
-                        <p className="text-xs text-charcoal-400">{lead.telefone}</p>
+                    <tr key={lead.id} className={`border-t border-cream-100 hover:bg-cream-50 cursor-pointer transition-colors ${isSelected ? 'bg-forest-50' : ''}`} onClick={() => setSelectedLead(lead)}>
+                      <td className="table-td w-10" onClick={e => { e.stopPropagation(); toggleSelectLead(lead.id); }}>
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelectLead(lead.id)} className="w-3.5 h-3.5 accent-forest-500 cursor-pointer" />
                       </td>
-                      <td className="table-td text-charcoal-500 capitalize">{lead.origem}</td>
+                      {colunasLeadVis.has('nome')        && <td className="table-td font-medium text-charcoal-700">{lead.nome}</td>}
+                      {colunasLeadVis.has('contato')     && (
+                        <td className="table-td">
+                          <p className="text-sm text-charcoal-600">{lead.email}</p>
+                          <p className="text-xs text-charcoal-400">{lead.telefone}</p>
+                        </td>
+                      )}
+                      {colunasLeadVis.has('origem')      && <td className="table-td text-charcoal-500 capitalize">{lead.origem}</td>}
+                      {colunasLeadVis.has('etapa')       && (
+                        <td className="table-td">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${etapa?.color}`}>{etapa?.label}</span>
+                        </td>
+                      )}
+                      {colunasLeadVis.has('plano')       && <td className="table-td text-charcoal-500 text-sm">{lead.planoDesejado || '—'}</td>}
+                      {colunasLeadVis.has('followup')    && (
+                        <td className="table-td text-charcoal-500 text-sm">
+                          {lead.proximoFollowUp ? new Date(lead.proximoFollowUp).toLocaleDateString('pt-BR') : '—'}
+                        </td>
+                      )}
+                      {colunasLeadVis.has('tags')        && (
+                        <td className="table-td">
+                          <div className="flex flex-wrap gap-1">
+                            {(lead.tags ?? []).map(t => <span key={t} className="px-1.5 py-0.5 bg-cream-100 text-charcoal-500 text-xs rounded border border-cream-200">{t}</span>)}
+                          </div>
+                        </td>
+                      )}
+                      {colunasLeadVis.has('responsavel') && <td className="table-td text-charcoal-500 text-sm">{lead.responsavel || '—'}</td>}
+                      {colunasLeadVis.has('observacoes') && (
+                        <td className="table-td text-charcoal-400 text-xs max-w-[200px] truncate" title={lead.observacoes ?? ''}>{lead.observacoes || '—'}</td>
+                      )}
+                      {colunasLeadVis.has('criado')      && (
+                        <td className="table-td text-charcoal-400 text-sm">{new Date(lead.createdAt).toLocaleDateString('pt-BR')}</td>
+                      )}
                       <td className="table-td">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${etapa?.color}`}>{etapa?.label}</span>
-                      </td>
-                      <td className="table-td text-charcoal-500">{lead.planoDesejado || '—'}</td>
-                      <td className="table-td text-charcoal-500">
-                        {lead.proximoFollowUp ? new Date(lead.proximoFollowUp).toLocaleDateString('pt-BR') : '—'}
-                      </td>
-                      <td className="table-td">
-                        <div className="flex gap-1">
+                        <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                           <button className="p-1.5 text-charcoal-400 hover:text-green-500 hover:bg-green-50 rounded-sm transition-colors"><MessageCircle size={14} /></button>
                           <button className="p-1.5 text-charcoal-400 hover:text-blue-500 hover:bg-blue-50 rounded-sm transition-colors"><Mail size={14} /></button>
                         </div>
@@ -806,42 +2088,66 @@ export function AdminCRM() {
         <Card padding={false}>
           {/* Barra de ferramentas */}
           <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-cream-100">
-            <SearchBar value={clienteSearch} onChange={v => { setClienteSearch(v); setClientePage(1); }} placeholder="Nome, e-mail, telefone ou CPF…" className="w-64" />
+            {selectedClis.size > 0 ? (
+              /* Bulk bar */
+              <>
+                <span className="text-sm font-medium text-charcoal-600">
+                  <SquareCheck size={14} className="inline mr-1.5 text-forest-500" />
+                  {selectedClis.size} selecionado{selectedClis.size !== 1 ? 's' : ''}
+                </span>
+                <button onClick={selectAllFilteredCli} className="text-xs text-forest-600 hover:text-forest-700 underline underline-offset-2">
+                  Selecionar todos ({filteredCli.length})
+                </button>
+                <button onClick={() => setSelectedClis(new Set())} className="text-xs text-charcoal-400 hover:text-charcoal-600 underline underline-offset-2">
+                  Desmarcar
+                </button>
+                <div className="h-4 w-px bg-cream-300" />
+                <button
+                  onClick={() => { setBulkCliField('preferenciaCafe'); setBulkCliValue(''); setBulkCliModal(true); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-forest-500 text-white rounded-sm hover:bg-forest-600 transition-colors"
+                >
+                  <Pencil size={13} /> Editar em massa
+                </button>
+              </>
+            ) : (
+              /* Normal bar */
+              <>
+                <SearchBar value={clienteSearch} onChange={v => { setClienteSearch(v); setClientePage(1); }} placeholder="Nome, e-mail, telefone ou CPF…" className="w-64" />
 
-            {/* Filtros */}
-            <button
-              onClick={() => setMostrarFiltrosCli(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border transition-colors ${mostrarFiltrosCli || filtrosCli.length > 0 ? 'bg-forest-50 border-forest-300 text-forest-700' : 'border-cream-200 text-charcoal-500 hover:border-forest-300 hover:text-forest-600'}`}
-            >
-              <SlidersHorizontal size={14} /> Filtros
-              {filtrosCli.length > 0 && (
-                <span className="ml-0.5 bg-forest-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none">{filtrosCli.length}</span>
-              )}
-              <ChevronDown size={12} className={`transition-transform ${mostrarFiltrosCli ? 'rotate-180' : ''}`} />
-            </button>
+                <button
+                  onClick={() => setMostrarFiltrosCli(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border transition-colors ${mostrarFiltrosCli || filtrosCli.length > 0 ? 'bg-forest-50 border-forest-300 text-forest-700' : 'border-cream-200 text-charcoal-500 hover:border-forest-300 hover:text-forest-600'}`}
+                >
+                  <SlidersHorizontal size={14} /> Filtros
+                  {filtrosCli.length > 0 && (
+                    <span className="ml-0.5 bg-forest-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none">{filtrosCli.length}</span>
+                  )}
+                  <ChevronDown size={12} className={`transition-transform ${mostrarFiltrosCli ? 'rotate-180' : ''}`} />
+                </button>
 
-            {/* Colunas */}
-            <div className="relative" ref={colunasRef}>
-              <button
-                onClick={() => setMostrarColunasCli(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border transition-colors ${mostrarColunasCli ? 'bg-forest-50 border-forest-300 text-forest-700' : 'border-cream-200 text-charcoal-500 hover:border-forest-300 hover:text-forest-600'}`}
-              >
-                <Columns2 size={14} /> Colunas
-                <ChevronDown size={12} className={`transition-transform ${mostrarColunasCli ? 'rotate-180' : ''}`} />
-              </button>
-              {mostrarColunasCli && (
-                <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-cream-200 rounded-sm shadow-lg p-3 w-44 space-y-1">
-                  {COLUNAS_CLI.map(col => (
-                    <label key={col.id} className="flex items-center gap-2 text-sm text-charcoal-600 cursor-pointer hover:text-charcoal-800 py-0.5">
-                      <input type="checkbox" checked={colunasVis.has(col.id)} onChange={() => toggleColunaCli(col.id)} className="w-3.5 h-3.5 accent-forest-500" />
-                      {col.label}
-                    </label>
-                  ))}
+                <div className="relative" ref={colunasRef}>
+                  <button
+                    onClick={() => setMostrarColunasCli(v => !v)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border transition-colors ${mostrarColunasCli ? 'bg-forest-50 border-forest-300 text-forest-700' : 'border-cream-200 text-charcoal-500 hover:border-forest-300 hover:text-forest-600'}`}
+                  >
+                    <Columns2 size={14} /> Colunas
+                    <ChevronDown size={12} className={`transition-transform ${mostrarColunasCli ? 'rotate-180' : ''}`} />
+                  </button>
+                  {mostrarColunasCli && (
+                    <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-cream-200 rounded-sm shadow-lg p-3 w-44 space-y-1">
+                      {COLUNAS_CLI.map(col => (
+                        <label key={col.id} className="flex items-center gap-2 text-sm text-charcoal-600 cursor-pointer hover:text-charcoal-800 py-0.5">
+                          <input type="checkbox" checked={colunasVis.has(col.id)} onChange={() => toggleColunaCli(col.id)} className="w-3.5 h-3.5 accent-forest-500" />
+                          {col.label}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div className="ml-auto text-xs text-charcoal-400">{filteredCli.length} cliente{filteredCli.length !== 1 ? 's' : ''}</div>
+                <div className="ml-auto text-xs text-charcoal-400">{filteredCli.length} cliente{filteredCli.length !== 1 ? 's' : ''}</div>
+              </>
+            )}
           </div>
 
           {/* Painel de filtros dinâmicos */}
@@ -889,6 +2195,13 @@ export function AdminCRM() {
             <table className="w-full">
               <thead>
                 <tr>
+                  <th className="table-th w-10">
+                    <input type="checkbox"
+                      checked={paginatedCli.length > 0 && selectedClis.size === paginatedCli.length}
+                      onChange={toggleSelectAllCli}
+                      className="w-3.5 h-3.5 accent-forest-500 cursor-pointer"
+                    />
+                  </th>
                   {colunasVis.has('nome')        && <th className="table-th">Nome</th>}
                   {colunasVis.has('email')       && <th className="table-th">E-mail</th>}
                   {colunasVis.has('telefone')    && <th className="table-th">Telefone</th>}
@@ -903,9 +2216,18 @@ export function AdminCRM() {
               </thead>
               <tbody>
                 {paginatedCli.length === 0 ? (
-                  <tr><td colSpan={colunasVis.size + 1} className="table-td text-center text-charcoal-400 py-10">Nenhum cliente encontrado.</td></tr>
-                ) : paginatedCli.map(cli => (
-                  <tr key={cli.id} className="border-t border-cream-100 hover:bg-cream-50 cursor-pointer transition-colors" onClick={() => setSelectedCliente(cli)}>
+                  <tr><td colSpan={colunasVis.size + 2} className="table-td text-center text-charcoal-400 py-10">Nenhum cliente encontrado.</td></tr>
+                ) : paginatedCli.map(cli => {
+                  const isCliSelected = selectedClis.has(cli.id);
+                  return (
+                  <tr key={cli.id}
+                    className={`border-t border-cream-100 hover:bg-cream-50 cursor-pointer transition-colors ${isCliSelected ? 'bg-forest-50' : ''}`}
+                    onClick={() => setSelectedCliente(cli)}
+                  >
+                    <td className="table-td w-10" onClick={e => { e.stopPropagation(); toggleSelectCli(cli.id); }}>
+                      <input type="checkbox" checked={isCliSelected} onChange={() => toggleSelectCli(cli.id)}
+                        className="w-3.5 h-3.5 accent-forest-500 cursor-pointer" />
+                    </td>
                     {colunasVis.has('nome') && (
                       <td className="table-td">
                         <p className="font-medium text-charcoal-700">{cli.name}</p>
@@ -942,23 +2264,41 @@ export function AdminCRM() {
                       </td>
                     )}
                     <td className="table-td">
-                      <div className="flex gap-1">
-                        <button onClick={e => { e.stopPropagation(); setSelectedCliente(cli); }} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors" title="Ver cadastro">
+                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => setSelectedCliente(cli)} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors" title="Ver cadastro">
                           <Eye size={15} />
                         </button>
-                        <button onClick={e => { e.stopPropagation(); setSelectedCliente(cli); abrirEditarCliente(cli); }} className="p-1.5 text-charcoal-400 hover:text-blue-500 hover:bg-blue-50 rounded-sm transition-colors" title="Editar">
+                        <button onClick={() => { setSelectedCliente(cli); abrirEditarCliente(cli); }} className="p-1.5 text-charcoal-400 hover:text-blue-500 hover:bg-blue-50 rounded-sm transition-colors" title="Editar">
                           <Pencil size={15} />
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           <Pagination page={clientePage} total={filteredCli.length} perPage={perPageCli} onChange={setClientePage} />
         </Card>
+      )}
+
+      {/* ── FOLLOW-UPS ────────────────────────────────────────────────────── */}
+      {tab === 'followup' && (
+        <FollowUpTab
+          followUps={followUps}
+          loading={loadingFollowUps}
+          userName={user?.name ?? 'admin'}
+          etapas={etapas}
+          onUpdated={() => {
+            setLoadingFollowUps(true);
+            getFollowUps().then(setFollowUps).catch(console.error).finally(() => setLoadingFollowUps(false));
+            // Reflete na lista principal também
+            getLeads().then(setLeads).catch(console.error);
+          }}
+          onVerLead={lead => setSelectedLead(lead)}
+        />
       )}
 
       {/* ── Modal detalhe lead ─────────────────────────────────────────────── */}
@@ -1770,6 +3110,252 @@ export function AdminCRM() {
               Salvar alterações
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal edição em massa — clientes ──────────────────────────────── */}
+      <Modal open={bulkCliModal} onClose={() => setBulkCliModal(false)} title={`Editar em massa — ${selectedClis.size} cliente(s)`} size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Campo</label>
+            <select
+              value={bulkCliField}
+              onChange={e => { setBulkCliField(e.target.value as typeof bulkCliField); setBulkCliValue(''); }}
+              className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+            >
+              <option value="preferenciaCafe">Preferência de café</option>
+              <option value="tipoMoagem">Tipo de moagem</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Valor</label>
+            {bulkCliField === 'preferenciaCafe' ? (
+              <select
+                value={bulkCliValue}
+                onChange={e => setBulkCliValue(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              >
+                <option value="">Selecione…</option>
+                <option value="grao">Grão inteiro</option>
+                <option value="moido">Moído</option>
+              </select>
+            ) : (
+              <select
+                value={bulkCliValue}
+                onChange={e => setBulkCliValue(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              >
+                <option value="">Selecione…</option>
+                <option value="fino">Fino (espresso)</option>
+                <option value="medio">Médio (coado/aeropress)</option>
+                <option value="grosso">Grosso (prensa francesa)</option>
+                <option value="extraGrosso">Extra grosso (cold brew)</option>
+              </select>
+            )}
+            {bulkCliField === 'tipoMoagem' && (
+              <p className="mt-1 text-xs text-charcoal-400">Aplicado apenas a clientes que já estão como "Moído".</p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-cream-200">
+            <Button variant="ghost" onClick={() => setBulkCliModal(false)} disabled={bulkCliando}>Cancelar</Button>
+            <Button
+              variant="primary"
+              onClick={handleBulkEditCli}
+              disabled={bulkCliando || !bulkCliValue}
+            >
+              {bulkCliando ? <Loader2 size={14} className="animate-spin" /> : <SquareCheck size={14} />}
+              {bulkCliando ? 'Aplicando…' : `Aplicar a ${selectedClis.size} cliente(s)`}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal edição em massa ─────────────────────────────────────────── */}
+      <Modal open={bulkEditModal} onClose={() => setBulkEditModal(false)} title={`Editar em massa — ${selectedLeads.size} lead(s)`} size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Campo</label>
+            <select
+              value={bulkEditField}
+              onChange={e => { setBulkEditField(e.target.value as typeof bulkEditField); setBulkEditValue(''); }}
+              className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+            >
+              <option value="etapa">Etapa</option>
+              <option value="responsavel">Responsável</option>
+              <option value="proximoFollowUp">Próximo Follow-up</option>
+              <option value="tags">Tags (substituir)</option>
+              <option value="observacoes">Observações (substituir)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Valor</label>
+            {bulkEditField === 'etapa' ? (
+              <select
+                value={bulkEditValue}
+                onChange={e => setBulkEditValue(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              >
+                <option value="">Selecione…</option>
+                {etapas.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+              </select>
+            ) : bulkEditField === 'proximoFollowUp' ? (
+              <input
+                type="datetime-local"
+                value={bulkEditValue}
+                onChange={e => setBulkEditValue(e.target.value)}
+                min={new Date().toISOString().slice(0, 16)}
+                className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              />
+            ) : bulkEditField === 'observacoes' ? (
+              <textarea
+                value={bulkEditValue}
+                onChange={e => setBulkEditValue(e.target.value)}
+                rows={3}
+                placeholder="Observações aplicadas a todos os selecionados…"
+                className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400 resize-none"
+              />
+            ) : bulkEditField === 'tags' ? (
+              <input
+                type="text"
+                value={bulkEditValue}
+                onChange={e => setBulkEditValue(e.target.value)}
+                placeholder="tag1, tag2, tag3"
+                className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              />
+            ) : (
+              <input
+                type="text"
+                value={bulkEditValue}
+                onChange={e => setBulkEditValue(e.target.value)}
+                placeholder="Responsável…"
+                className="w-full px-3 py-2 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+              />
+            )}
+            {bulkEditField === 'tags' && (
+              <p className="mt-1 text-xs text-charcoal-400">Separe as tags por vírgula. Isso substituirá as tags existentes.</p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-cream-200">
+            <Button variant="ghost" onClick={() => setBulkEditModal(false)} disabled={bulkEditando}>Cancelar</Button>
+            <Button
+              variant="primary"
+              onClick={handleBulkEdit}
+              disabled={bulkEditando || (bulkEditField !== 'proximoFollowUp' && !bulkEditValue.trim())}
+            >
+              {bulkEditando ? <Loader2 size={14} className="animate-spin" /> : <SquareCheck size={14} />}
+              {bulkEditando ? 'Aplicando…' : `Aplicar a ${selectedLeads.size} lead(s)`}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal importar leads ───────────────────────────────────────────── */}
+      <Modal open={importModal} onClose={() => { setImportModal(false); setImportPreview([]); }} title="Importar Leads" size="lg">
+        <div className="space-y-4">
+          {importPreview.length === 0 ? (
+            <>
+              <div className="bg-cream-50 border border-cream-200 rounded-sm p-4 space-y-2">
+                <p className="text-sm font-medium text-charcoal-700">Formato esperado do arquivo</p>
+                <p className="text-xs text-charcoal-500">Arquivo CSV ou Excel salvo como CSV (.csv) com as colunas na ordem:</p>
+                <div className="overflow-x-auto">
+                  <table className="text-xs text-charcoal-600 w-full">
+                    <thead>
+                      <tr className="border-b border-cream-300">
+                        {['Nome', 'Telefone', 'E-mail', 'Origem', 'Etapa'].map(h => (
+                          <th key={h} className="text-left py-1 pr-3 font-semibold text-charcoal-500 uppercase tracking-wider text-[10px]">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="py-1 pr-3">Ana Silva</td>
+                        <td className="py-1 pr-3">(11) 99999-0000</td>
+                        <td className="py-1 pr-3">ana@email.com</td>
+                        <td className="py-1 pr-3">manual</td>
+                        <td className="py-1 pr-3">novo</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[11px] text-charcoal-400">Origens válidas: manual, checkout, reserva, blog, social, indicacao, landing</p>
+                <p className="text-[11px] text-charcoal-400">Etapa: se omitida ou inválida, assume <strong>novo</strong>. Valores: novo, interesse_assinatura, cliente_ativo, perdido…</p>
+              </div>
+
+              <div
+                className="border-2 border-dashed border-cream-300 rounded-sm p-8 text-center cursor-pointer hover:border-forest-400 hover:bg-forest-50 transition-colors"
+                onClick={() => importFileRef.current?.click()}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleImportFile(f); }}
+              >
+                <Upload size={24} className="mx-auto mb-3 text-charcoal-300" />
+                <p className="text-sm font-medium text-charcoal-600">Clique ou arraste o arquivo CSV aqui</p>
+                <p className="text-xs text-charcoal-400 mt-1">Aceita arquivos .csv (Excel → Salvar como → CSV)</p>
+              </div>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
+              />
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-charcoal-600">
+                  <span className="font-semibold text-forest-600">{importPreview.length}</span> lead(s) encontrado(s) no arquivo
+                </p>
+                <button
+                  onClick={() => setImportPreview([])}
+                  className="text-xs text-charcoal-400 hover:text-charcoal-600 underline"
+                >
+                  Trocar arquivo
+                </button>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto border border-cream-200 rounded-sm">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-cream-50">
+                    <tr>
+                      {['Nome', 'Telefone', 'E-mail', 'Origem', 'Etapa'].map(h => (
+                        <th key={h} className="text-left px-3 py-2 font-medium text-charcoal-500 uppercase tracking-wider text-[10px] border-b border-cream-200">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importPreview.map((row, i) => {
+                      const etapaInfo = etapas.find(e => e.id === row.etapa);
+                      return (
+                        <tr key={i} className="border-t border-cream-100 hover:bg-cream-50">
+                          <td className="px-3 py-2 text-charcoal-700 font-medium">{row.nome}</td>
+                          <td className="px-3 py-2 text-charcoal-500">{row.telefone || '—'}</td>
+                          <td className="px-3 py-2 text-charcoal-600">{row.email}</td>
+                          <td className="px-3 py-2 text-charcoal-500 capitalize">{row.origem}</td>
+                          <td className="px-3 py-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${etapaInfo?.color ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                              {etapaInfo?.label ?? row.etapa}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-cream-200">
+                <Button variant="ghost" onClick={() => { setImportModal(false); setImportPreview([]); }} disabled={importando}>Cancelar</Button>
+                <Button variant="primary" onClick={handleConfirmImport} disabled={importando}>
+                  {importando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {importando ? 'Importando…' : `Importar ${importPreview.length} lead(s)`}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
 

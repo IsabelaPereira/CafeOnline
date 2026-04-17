@@ -88,6 +88,40 @@ export async function getLeadByEmail(email: string): Promise<Lead | null> {
   return mapLead(data);
 }
 
+export async function getLeadByClienteId(clienteId: string): Promise<Lead | null> {
+  const { data, error } = await supabase
+    .from('leads').select(LEAD_SELECT).eq('cliente_id', clienteId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (error || !data) return null;
+  return mapLead(data);
+}
+
+/** Retorna leads com follow-up agendado, ordenados pelo mais próximo primeiro */
+export async function getFollowUps(): Promise<Lead[]> {
+  const { data, error } = await supabase
+    .from('leads')
+    .select(LEAD_SELECT)
+    .not('proximo_follow_up', 'is', null)
+    .order('proximo_follow_up', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(mapLead);
+}
+
+/** Marca um follow-up como realizado: limpa a data e registra interação */
+export async function marcarFollowUpFeito(leadId: string, observacao: string, usuario: string): Promise<void> {
+  await supabase.from('leads').update({
+    proximo_follow_up: null,
+    ultimo_contato: new Date().toISOString().split('T')[0],
+  }).eq('id', leadId);
+  if (observacao.trim()) {
+    await supabase.from('interacoes_crm').insert({
+      lead_id: leadId,
+      tipo: 'anotacao',
+      descricao: observacao,
+      usuario,
+    });
+  }
+}
+
 export async function createLead(l: {
   nome: string;
   email: string;

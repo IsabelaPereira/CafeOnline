@@ -24,14 +24,17 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
 
   const addItem = (produto: Produto, quantidade = 1, preferencia: 'grao' | 'moido' = 'grao', moagem?: string) => {
+    if (produto.estoque === 0) return;
     setItems(prev => {
       const existing = prev.find(i => i.produto.id === produto.id);
       if (existing) {
+        // Don't exceed available stock
+        const novaQtd = Math.min(existing.quantidade + quantidade, produto.estoque);
         return prev.map(i =>
-          i.produto.id === produto.id ? { ...i, quantidade: i.quantidade + quantidade } : i
+          i.produto.id === produto.id ? { ...i, quantidade: novaQtd } : i
         );
       }
-      return [...prev, { produto, quantidade, preferencia, moagem }];
+      return [...prev, { produto, quantidade: Math.min(quantidade, produto.estoque), preferencia, moagem }];
     });
   };
 

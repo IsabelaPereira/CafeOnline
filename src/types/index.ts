@@ -59,6 +59,8 @@ export type LeadEtapa =
   | 'pagamento_invalido'
   | 'pagamento_pendente'
   | 'assinatura_concluida'
+  | 'assinatura_cancelada'
+  | 'compra_concluida'
   | 'carrinho-abandonado'
   | 'interesse_reserva'
   | 'cliente_ativo'
@@ -204,8 +206,10 @@ export interface Produto {
   estoque: number;
   estoqueMinimo: number;
   peso: number;
-  fotos: string[];
+  fotos: string[];         // imagens — fotos[0] é sempre a capa
+  videos: string[];        // URLs de vídeo (YouTube/Vimeo/direto)
   categoriaId: string;
+  categoriaIds: string[];   // multi-categoria (inclui categoriaId)
   notasSensoriais: string[];
   regiao?: string;
   produtor?: string;
@@ -217,6 +221,31 @@ export interface Produto {
   destaque: boolean;
   produtoAssinatura: boolean;
   createdAt: string;
+}
+
+export type TipoMovimentacao = 'entrada' | 'saida' | 'ajuste' | 'inventario' | 'perda' | 'venda';
+
+export interface MovimentacaoEstoque {
+  id: string;
+  produtoId: string;
+  tipo: TipoMovimentacao;
+  quantidade: number;
+  estoqueAntes: number;
+  estoqueDepois: number;
+  observacao?: string;
+  usuarioId?: string;
+  createdAt: string;
+}
+
+export type StatusEstoque = 'critico' | 'baixo' | 'ok' | 'acima';
+
+export interface ProdutoMetricas extends Produto {
+  vendas30d: number;
+  velocidadeDia: number;
+  diasRestantes: number | null;
+  coberturaDias: number | null;
+  sugestao: number;
+  status: StatusEstoque;
 }
 
 export interface CategoriaProduto {

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Eye, Edit, Trash2, Calendar } from 'lucide-react';
+import { Plus, Eye, Edit, Trash2 } from 'lucide-react';
 import {
   Card, Badge, Button, Modal, Input, Textarea, Select,
   SectionHeader, SearchBar, Tabs
 } from '../../components/ui';
-import { getPosts } from '../../services/blog.service';
+import { getPosts, createPost, updatePost, deletePost } from '../../services/blog.service';
+import { useAuth } from '../../contexts/AuthContext';
 import type { PostBlog } from '../../types';
 
 const statusVariant: Record<string, 'active' | 'pending' | 'inactive'> = {
@@ -12,11 +13,24 @@ const statusVariant: Record<string, 'active' | 'pending' | 'inactive'> = {
 };
 
 export function AdminBlog() {
+  const { user } = useAuth();
   const [posts, setPosts] = useState<PostBlog[]>([]);
   const [tab, setTab] = useState('posts');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(false);
   const [editPost, setEditPost] = useState<PostBlog | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  // Form state
+  const [formTitulo, setFormTitulo] = useState('');
+  const [formSlug, setFormSlug] = useState('');
+  const [formResumo, setFormResumo] = useState('');
+  const [formConteudo, setFormConteudo] = useState('');
+  const [formStatus, setFormStatus] = useState<PostBlog['status']>('rascunho');
+  const [formPublicadoEm, setFormPublicadoEm] = useState('');
+  const [formMetaTitle, setFormMetaTitle] = useState('');
+  const [formMetaDescription, setFormMetaDescription] = useState('');
 
   useEffect(() => {
     getPosts().then(setPosts).catch(console.error);
@@ -27,13 +41,59 @@ export function AdminBlog() {
     p.titulo.toLowerCase().includes(search.toLowerCase())
   );
 
+  function openModal(post: PostBlog | null) {
+    setEditPost(post);
+    setFormTitulo(post?.titulo ?? '');
+    setFormSlug(post?.slug ?? '');
+    setFormResumo(post?.resumo ?? '');
+    setFormConteudo(post?.conteudo ?? '');
+    setFormStatus(post?.status ?? 'rascunho');
+    setFormPublicadoEm(post?.publicadoEm ? post.publicadoEm.slice(0, 10) : '');
+    setFormMetaTitle(post?.metaTitle ?? '');
+    setFormMetaDescription(post?.metaDescription ?? '');
+    setSaveError('');
+    setModal(true);
+  }
+
+  async function handleSalvar() {
+    if (!formTitulo.trim()) { setSaveError('O título é obrigatório.'); return; }
+    setSaving(true); setSaveError('');
+    try {
+      if (editPost) {
+        await updatePost(editPost.id, {
+          titulo: formTitulo, resumo: formResumo, conteudo: formConteudo,
+          status: formStatus, publicadoEm: formPublicadoEm || undefined,
+          metaTitle: formMetaTitle || undefined, metaDescription: formMetaDescription || undefined,
+        });
+      } else {
+        await createPost({
+          titulo: formTitulo, resumo: formResumo, conteudo: formConteudo,
+          status: formStatus, autorId: user?.id ?? '',
+        });
+      }
+      const updated = await getPosts();
+      setPosts(updated);
+      setModal(false);
+    } catch (e: any) {
+      setSaveError(e?.message ?? 'Erro ao salvar post.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Excluir este post?')) return;
+    await deletePost(id);
+    setPosts(prev => prev.filter(p => p.id !== id));
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       <SectionHeader
         title="Blog"
         subtitle="Gerencie o conteúdo do blog"
         action={
-          <Button variant="primary" size="sm" onClick={() => { setEditPost(null); setModal(true); }}>
+          <Button variant="primary" size="sm" onClick={() => openModal(null)}>
             <Plus size={14} />
             Novo post
           </Button>
@@ -100,13 +160,13 @@ export function AdminBlog() {
                       </td>
                       <td className="table-td">
                         <div className="flex gap-1">
-                          <button className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm" onClick={() => { setEditPost(post); setModal(true); }}>
+                          <button className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm" onClick={() => openModal(post)}>
                             <Edit size={14} />
                           </button>
                           <button className="p-1.5 text-charcoal-400 hover:text-blue-500 hover:bg-blue-50 rounded-sm">
                             <Eye size={14} />
                           </button>
-                          <button className="p-1.5 text-charcoal-400 hover:text-red-500 hover:bg-red-50 rounded-sm">
+                          <button className="p-1.5 text-charcoal-400 hover:text-red-500 hover:bg-red-50 rounded-sm" onClick={() => handleDelete(post.id)}>
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -155,17 +215,20 @@ export function AdminBlog() {
           <Input
             label="Título"
             required
-            defaultValue={editPost?.titulo}
+            value={formTitulo}
+            onChange={e => setFormTitulo(e.target.value)}
             placeholder="Título do post"
           />
           <Input
             label="Slug (URL amigável)"
-            defaultValue={editPost?.slug}
+            value={formSlug}
+            onChange={e => setFormSlug(e.target.value)}
             placeholder="titulo-do-post"
           />
           <Textarea
             label="Resumo"
-            defaultValue={editPost?.resumo}
+            value={formResumo}
+            onChange={e => setFormResumo(e.target.value)}
             placeholder="Breve descrição do post..."
             rows={2}
           />
@@ -180,7 +243,8 @@ export function AdminBlog() {
                 ))}
               </div>
               <Textarea
-                defaultValue={editPost?.conteudo}
+                value={formConteudo}
+                onChange={e => setFormConteudo(e.target.value)}
                 placeholder="Escreva o conteúdo do post em HTML ou texto..."
                 rows={12}
               />
@@ -190,30 +254,45 @@ export function AdminBlog() {
           <div className="grid grid-cols-2 gap-4">
             <Select
               label="Status"
-              defaultValue={editPost?.status ?? 'rascunho'}
+              value={formStatus}
+              onChange={e => setFormStatus(e.target.value as PostBlog['status'])}
               options={[
                 { value: 'rascunho', label: 'Rascunho' },
                 { value: 'publicado', label: 'Publicado' },
                 { value: 'agendado', label: 'Agendado' },
               ]}
             />
-            {editPost?.status === 'agendado' ? (
-              <Input label="Agendar para" type="datetime-local" />
-            ) : (
-              <Input label="Data de publicação" type="date" defaultValue={editPost?.publicadoEm} />
-            )}
+            <Input
+              label="Data de publicação"
+              type="date"
+              value={formPublicadoEm}
+              onChange={e => setFormPublicadoEm(e.target.value)}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Meta Title (SEO)" defaultValue={editPost?.metaTitle} placeholder="Título para mecanismos de busca" />
-            <Input label="Meta Description (SEO)" defaultValue={editPost?.metaDescription} placeholder="Descrição para mecanismos de busca" />
+            <Input
+              label="Meta Title (SEO)"
+              value={formMetaTitle}
+              onChange={e => setFormMetaTitle(e.target.value)}
+              placeholder="Título para mecanismos de busca"
+            />
+            <Input
+              label="Meta Description (SEO)"
+              value={formMetaDescription}
+              onChange={e => setFormMetaDescription(e.target.value)}
+              placeholder="Descrição para mecanismos de busca"
+            />
           </div>
+
+          {saveError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-sm px-3 py-2">{saveError}</p>
+          )}
 
           <div className="flex gap-3 justify-end pt-2 border-t border-cream-200">
             <Button variant="ghost" onClick={() => setModal(false)}>Cancelar</Button>
-            <Button variant="secondary">Pré-visualizar</Button>
-            <Button variant="primary">
-              {editPost ? 'Salvar alterações' : 'Publicar post'}
+            <Button variant="primary" onClick={handleSalvar} disabled={saving}>
+              {saving ? 'Salvando...' : editPost ? 'Salvar alterações' : 'Publicar post'}
             </Button>
           </div>
         </div>

@@ -21,7 +21,32 @@
       "Bash(cmd /c \"node -e \\\\\"const p = require\\('./package.json'\\); console.log\\(JSON.stringify\\(Object.keys\\(p.dependencies||{}\\), null, 2\\)\\)\\\\\"\")",
       "Bash(python3 -c ' *)",
       "Bash(node fix_social.js)",
-      "Bash(node fix_social.cjs)"
+      "Bash(node fix_social.cjs)",
+      "Bash(grep -l \"estoque\\\\|stock\\\\|inventory\" /c/apps/CafeOnline/supabase/migrations/*.sql)",
+      "Bash(xargs wc *)",
+      "Bash(grep -n \"tipo.*assinatura\\\\|ciclo\\\\|melhorenvio\" /c/apps/CafeOnline/supabase/migrations/*.sql)",
+      "Bash(tsc --noEmit)",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && node_modules\\\\.bin\\\\tsc --noEmit 2>&1\")",
+      "Bash(cmd.exe /c \"cd /d c:\\\\apps\\\\CafeOnline && node_modules\\\\.bin\\\\tsc.cmd --noEmit\")",
+      "Bash(cmd.exe /c \"cd /d c:\\\\apps\\\\CafeOnline && node_modules\\\\.bin\\\\tsc.cmd --noEmit > tsc_out.txt 2>&1 & type tsc_out.txt\")",
+      "Bash(powershell.exe -Command \"Set-Location 'c:\\\\apps\\\\CafeOnline'; & '.\\\\node_modules\\\\.bin\\\\tsc.cmd' --noEmit 2>&1 | Select-Object -First 80\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npx tsc --noEmit 2>&1\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npm run build 2>&1\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npx tsc --noEmit\")",
+      "Bash(cmd /c \"findstr /n . c:\\\\apps\\\\CafeOnline\\\\src\\\\pages\\\\admin\\\\AdminCRM.tsx | tail -20\")",
+      "Bash(cmd /c \"npx tsc --noEmit 2>&1\")",
+      "Bash(cmd /c \"type c:\\\\apps\\\\CafeOnline\\\\package.json\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npx vite build 2>&1 | tail -20\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npx vite build 2>&1\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npx vite build\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npx vite build > build_out.txt 2>&1 && type build_out.txt\")",
+      "Bash(cmd /c \"findstr /i CheckSquare c:\\\\apps\\\\CafeOnline\\\\node_modules\\\\lucide-react\\\\dist\\\\lucide-react.js | head\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npx tsc --noEmit > tsc_out.txt 2>&1 && echo OK || type tsc_out.txt\")",
+      "Bash(cmd /c \"cd c:\\\\apps\\\\CafeOnline && npx tsc --noEmit && echo TypeScript OK\")",
+      "Bash(cmd /c \"npx tsc --noEmit && echo OK\")",
+      "Bash(cmd /c \"npx tsc --noEmit && echo TypeScript OK\")",
+      "Bash(cmd /c \"npx tsc --noEmit 2>&1 | findstr error\")",
+      "Bash(cmd /c \"npx tsc --noEmit 2>&1 | findstr /i error warning\")"
     ]
   }
 }
