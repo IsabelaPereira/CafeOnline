@@ -634,7 +634,8 @@ export function BlogPostPage() {
               <div className="absolute inset-0 bg-gradient-to-b from-charcoal-700/50 to-charcoal-700" />
             </div>
           )}
-          <div className="relative z-10 max-w-4xl mx-auto px-5 sm:px-8 pb-14 md:pb-20">
+          <div className="relative z-10 max-w-7xl mx-auto px-5 sm:px-8 pb-14 md:pb-20">
+            <div className="max-w-3xl">
             {/* Breadcrumb */}
             <div className="flex items-center gap-2 font-mono text-[9px] tracking-[0.3em] uppercase text-cream-100/40 mb-10">
               <Link to="/blog" className="hover:text-gold-300 transition-colors">Blog</Link>
@@ -675,44 +676,114 @@ export function BlogPostPage() {
                 <Eye size={10} />
                 {post.visualizacoes.toLocaleString()}
               </span>
-            </div>
-          </div>
-        </div>
+            </div>{/* meta */}
+            </div>{/* max-w-3xl */}
+          </div>{/* max-w-7xl */}
+        </div>{/* hero */}
 
         {/* Conteúdo */}
-        <article className="max-w-3xl mx-auto px-5 sm:px-8 py-14 md:py-20">
-          <div
-            className="prose prose-lg max-w-none
-              prose-headings:font-editorial prose-headings:italic prose-headings:text-charcoal-700
-              prose-p:text-charcoal-500 prose-p:leading-relaxed prose-p:font-light
-              prose-a:text-forest-500 prose-a:no-underline hover:prose-a:underline
-              prose-strong:text-charcoal-700 prose-strong:font-semibold
-              prose-blockquote:border-l-gold-400 prose-blockquote:text-charcoal-400 prose-blockquote:italic
-              prose-code:font-mono prose-code:text-sm prose-code:text-earth-600"
-            dangerouslySetInnerHTML={{ __html: post.conteudo }}
-          />
+        <div className="max-w-7xl mx-auto px-5 sm:px-8 py-14 md:py-20">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-12 xl:gap-20 items-start">
 
-          {/* Tags */}
-          {post.tags.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-12 pt-8 border-t border-charcoal-700/10">
-              {post.tags.map(tag => (
-                <span key={tag} className="flex items-center gap-1 font-mono text-[9px] tracking-[0.25em] uppercase px-3 py-1.5 bg-cream-200 text-charcoal-500">
-                  <Tag size={8} />{tag}
-                </span>
-              ))}
-            </div>
-          )}
+            {/* Artigo principal */}
+            <article>
+              {post.resumo && (
+                <p className="font-editorial italic text-xl md:text-2xl text-charcoal-400 leading-relaxed border-l-2 border-gold-400 pl-5 mb-10 md:mb-14">
+                  {post.resumo}
+                </p>
+              )}
 
-          {/* Back */}
-          <div className="mt-10">
-            <Link
-              to="/blog"
-              className="font-mono text-[9px] tracking-[0.3em] uppercase text-forest-500 hover:text-forest-600 transition-colors flex items-center gap-2"
-            >
-              ← Todos os artigos
-            </Link>
+              <div
+                className="article-prose"
+                dangerouslySetInnerHTML={{ __html: post.conteudo }}
+              />
+
+              {/* Tags */}
+              {post.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-14 pt-8 border-t border-cream-300">
+                  {post.tags.map(tag => (
+                    <span key={tag} className="flex items-center gap-1.5 font-mono text-[9px] tracking-[0.25em] uppercase px-3 py-1.5 bg-cream-100 border border-cream-300 text-charcoal-400 hover:border-gold-400 hover:text-charcoal-600 transition-colors cursor-default">
+                      <Tag size={8} />{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Back */}
+              <div className="mt-12 pt-8 border-t border-cream-200">
+                <Link
+                  to="/blog"
+                  className="font-mono text-[9px] tracking-[0.3em] uppercase text-forest-500 hover:text-forest-600 transition-colors flex items-center gap-2"
+                >
+                  ← Todos os artigos
+                </Link>
+              </div>
+            </article>
+
+            {/* Sidebar */}
+            <aside className="hidden lg:block sticky top-28 space-y-8">
+              {/* Sobre o autor */}
+              {post.autor && (
+                <div className="border border-cream-200 p-5">
+                  <p className="font-mono text-[9px] tracking-[0.3em] uppercase text-charcoal-400 mb-3">Autor</p>
+                  <p className="font-editorial italic text-lg text-charcoal-700 leading-tight">{post.autor}</p>
+                </div>
+              )}
+
+              {/* Info do artigo */}
+              <div className="border border-cream-200 p-5 space-y-4">
+                <p className="font-mono text-[9px] tracking-[0.3em] uppercase text-charcoal-400 mb-3">Detalhes</p>
+                {post.publicadoEm && (
+                  <div>
+                    <p className="font-mono text-[8px] tracking-[0.2em] uppercase text-charcoal-300 mb-0.5">Publicado em</p>
+                    <p className="text-sm text-charcoal-600">{fmtDate(post.publicadoEm)}</p>
+                  </div>
+                )}
+                {post.conteudo && (
+                  <div>
+                    <p className="font-mono text-[8px] tracking-[0.2em] uppercase text-charcoal-300 mb-0.5">Tempo de leitura</p>
+                    <p className="text-sm text-charcoal-600">{readTime(post.conteudo)} min</p>
+                  </div>
+                )}
+                <div>
+                  <p className="font-mono text-[8px] tracking-[0.2em] uppercase text-charcoal-300 mb-0.5">Visualizações</p>
+                  <p className="text-sm text-charcoal-600">{post.visualizacoes.toLocaleString('pt-BR')}</p>
+                </div>
+              </div>
+
+              {/* Categorias */}
+              {post.categorias.length > 0 && (
+                <div className="border border-cream-200 p-5">
+                  <p className="font-mono text-[9px] tracking-[0.3em] uppercase text-charcoal-400 mb-3">Categorias</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {post.categorias.map(cat => (
+                      <span key={cat} className="font-mono text-[9px] tracking-[0.2em] uppercase text-gold-600 border border-gold-300/50 bg-gold-100/50 px-2 py-1">
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* CTA sidebar */}
+              <div className="relative bg-forest-700 overflow-hidden p-5">
+                <Grain opacity={0.12} />
+                <div className="relative z-10">
+                  <p className="font-mono text-[8px] tracking-[0.3em] uppercase text-gold-300/70 mb-2">Das Matas</p>
+                  <p className="font-editorial italic text-xl text-cream-50 leading-snug mb-4">
+                    Café especial todo mês.
+                  </p>
+                  <Link
+                    to="/assinar"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold-400 text-charcoal-700 font-mono text-[8px] tracking-[0.3em] uppercase hover:bg-gold-300 transition-colors"
+                  >
+                    Assinar <ArrowUpRight size={10} />
+                  </Link>
+                </div>
+              </div>
+            </aside>
           </div>
-        </article>
+        </div>
 
         {/* Posts relacionados */}
         {related.length > 0 && (
