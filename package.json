@@ -7,7 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "typecheck": "tsc -b --noEmit",
+    "preview": "vite preview",
+    "db:push": "supabase db push",
+    "db:migrate": "supabase db push",
+    "db:reset": "supabase db reset",
+    "functions:deploy": "bash scripts/deploy-functions.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",

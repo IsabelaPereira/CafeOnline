@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  # ─── Nginx: reverse proxy + serve SPAs ───────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: dasmatas-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./data/staging:/var/www/staging:ro
+      - ./data/production:/var/www/production:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - n8n
+    networks:
+      - dasmatas
+
+  # ─── Certbot: SSL certificates ───────────────────────────────
+  certbot:
+    image: certbot/certbot
+    container_name: dasmatas-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+  # ─── n8n: workflow automation ────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: dasmatas-n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://n8n.dasmatas.com.br/
+      - N8N_EDITOR_BASE_URL=https://n8n.dasmatas.com.br/
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - TZ=America/Sao_Paulo
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - dasmatas
+    # Para desabilitar o n8n até precisar, descomente:
+    # profiles:
+    #   - n8n
+
+networks:
+  dasmatas:
+    driver: bridge
+
+volumes:
+  n8n_data:
