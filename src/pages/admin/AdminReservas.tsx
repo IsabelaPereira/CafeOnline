@@ -518,6 +518,7 @@ export function AdminReservas() {
                         onClick={() => abrirReserva(r)}>
                         <td className="table-td" onClick={e => { e.stopPropagation(); toggleSel(r.id); }}>
                           <input type="checkbox" checked={sel} onChange={() => toggleSel(r.id)}
+                            onClick={e => e.stopPropagation()}
                             className="accent-forest-500 w-4 h-4 cursor-pointer" />
                         </td>
                         <td className="table-td">
