@@ -53,12 +53,13 @@ const ETAPAS_EXCLUIDAS_FUNIL = new Set<LeadEtapa>([
 const etapasFunil = etapas.filter(e => !ETAPAS_EXCLUIDAS_FUNIL.has(e.id));
 const FUNIL_DEFAULT_ORDEM = etapasFunil.map(e => e.id);
 
-function LeadCard({ lead, onClick, onDragStart, onDragEnd, colunasVis }: {
+function LeadCard({ lead, onClick, onDragStart, onDragEnd, colunasVis, nomePlano }: {
   lead: Lead;
   onClick: () => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
   colunasVis?: Set<string>;
+  nomePlano?: (id?: string | null) => string;
 }) {
   const etapa = etapas.find(e => e.id === lead.etapa);
   const origemIcon: Record<string, string> = {
@@ -80,7 +81,7 @@ function LeadCard({ lead, onClick, onDragStart, onDragEnd, colunasVis }: {
         </div>
         {vis.has('origem') && <span className="text-sm">{origemIcon[lead.origem] || '📋'}</span>}
       </div>
-      {vis.has('plano') && lead.planoDesejado && <p className="text-xs text-forest-600 mb-2">→ {nomePlano(lead.planoDesejado)}</p>}
+      {vis.has('plano') && lead.planoDesejado && <p className="text-xs text-forest-600 mb-2">→ {nomePlano ? nomePlano(lead.planoDesejado) : lead.planoDesejado}</p>}
       {vis.has('tags') && lead.tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
           {lead.tags.map(tag => (
@@ -252,6 +253,7 @@ function FollowUpTab({
   etapas,
   onUpdated,
   onVerLead,
+  nomePlano,
 }: {
   followUps: Lead[];
   loading: boolean;
@@ -259,6 +261,7 @@ function FollowUpTab({
   etapas: { id: LeadEtapa; label: string; color: string }[];
   onUpdated: () => void;
   onVerLead: (lead: Lead) => void;
+  nomePlano?: (id?: string | null) => string;
 }) {
   const now = new Date();
   const [marcarModal, setMarcarModal] = useState<Lead | null>(null);
@@ -655,7 +658,7 @@ function FollowUpTab({
                     </p>
                   )}
                   {colunasFUVis.has('plano') && lead.planoDesejado && (
-                    <p className="text-xs text-forest-600 mt-0.5">→ {nomePlano(lead.planoDesejado)}</p>
+                    <p className="text-xs text-forest-600 mt-0.5">→ {nomePlano ? nomePlano(lead.planoDesejado) : lead.planoDesejado}</p>
                   )}
                   {colunasFUVis.has('tags') && (lead.tags ?? []).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
@@ -1834,6 +1837,7 @@ export function AdminCRM() {
                           onDragStart={() => { setDragCardLeadId(lead.id); }}
                           onDragEnd={() => { setDragCardLeadId(null); setDragCardOver(null); }}
                           colunasVis={colunasFunilCard}
+                          nomePlano={nomePlano}
                         />
                       ))}
                       {etapaLeads.length === 0 && (
@@ -2305,6 +2309,7 @@ export function AdminCRM() {
             getLeads().then(setLeads).catch(console.error);
           }}
           onVerLead={lead => setSelectedLead(lead)}
+          nomePlano={nomePlano}
         />
       )}
 
