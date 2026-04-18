@@ -285,11 +285,6 @@ function FollowUpTab({
   const [mostrarColunasFU, setMostrarColunasFU] = useState(false);
   const colunasFURef = useRef<HTMLDivElement>(null);
 
-  const listagemFiltrada = (filtrosFU.length === 0
-    ? listagem
-    : listagem.filter(l => filtrosFU.every(f => matchLeadFiltro(l, f)))
-  );
-
   function adicionarFiltroFU() {
     setFiltrosFU(prev => [...prev, { id: crypto.randomUUID(), campo: 'nome', operador: 'contem', valor: '' }]);
     setMostrarFiltrosFU(true);
@@ -375,6 +370,11 @@ function FollowUpTab({
     : filtro === 'hoje' ? hoje
     : filtro === 'proximos' ? proximos
     : followUps;
+
+  const listagemFiltrada = (filtrosFU.length === 0
+    ? listagem
+    : listagem.filter(l => filtrosFU.every(f => matchLeadFiltro(l, f)))
+  );
 
   async function handleMarcarFeito() {
     if (!marcarModal) return;
