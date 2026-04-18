@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { SEO } from '../../components/SEO';
 import {
   ArrowRight, MapPin, Clock, Phone,
   Users, Calendar, Mic, Cake, Briefcase, BookOpen,
@@ -784,6 +785,23 @@ export function CafeteriaPage() {
 
   return (
     <div className="min-h-screen">
+      <SEO
+        title="Cafeteria Das Matas — Café de Especialidade em Minas Gerais"
+        description="Visite a Cafeteria Das Matas em Minas Gerais. Carta de cafés de origem, métodos alternativos, experiências sensoriais e ambiente único. Reserve sua mesa online."
+        path="/cafeteria"
+        schema={{
+          '@context': 'https://schema.org',
+          '@type': 'CafeOrCoffeeShop',
+          'name': 'Das Matas — Cafeteria de Especialidade',
+          'url': 'https://www.dasmatas.com.br/cafeteria',
+          'description': 'Cafeteria de especialidade em Minas Gerais com carta de cafés de origem, método e experiência sensorial. Reserve sua mesa online.',
+          'servesCuisine': ['Café Especial', 'Cafeteria de Especialidade'],
+          'priceRange': '$$',
+          'address': { '@type': 'PostalAddress', 'addressRegion': 'MG', 'addressCountry': 'BR' },
+          'reservations': 'https://www.dasmatas.com.br/reservas',
+          'parentOrganization': { '@id': 'https://www.dasmatas.com.br/#organization' }
+        }}
+      />
       <Hero />
       <VideoSection />
       <MenuGallery />

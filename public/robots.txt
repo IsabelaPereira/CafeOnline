@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+
+# Bloqueia rotas do painel administrativo
+Disallow: /admin
+Disallow: /admin/
+
+# Bloqueia rotas de cliente autenticado
+Disallow: /cliente/
+Disallow: /checkout
+Disallow: /sucesso
+Disallow: /login
+
+# Sitemap
+Sitemap: https://www.dasmatas.com.br/sitemap.xml

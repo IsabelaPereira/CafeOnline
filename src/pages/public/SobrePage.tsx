@@ -1,10 +1,24 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Coffee, MapPin, Heart, Award, ArrowRight } from 'lucide-react';
+import { SEO } from '../../components/SEO';
 
 export function SobrePage() {
   return (
     <div className="pt-20">
+      <SEO
+        title="Sobre a Das Matas — Nossa História e Propósito"
+        description="Conheça a Das Matas: uma marca nascida do amor pelo café especial e pelo desejo de aproximar pessoas de origens, produtores e experiências únicas em Minas Gerais e no Brasil."
+        path="/sobre"
+        schema={{
+          '@context': 'https://schema.org',
+          '@type': 'AboutPage',
+          'name': 'Sobre a Das Matas',
+          'url': 'https://www.dasmatas.com.br/sobre',
+          'description': 'A Das Matas é uma marca dedicada à curadoria de cafés especiais, com clube de assinatura e cafeteria de especialidade em Minas Gerais.',
+          'publisher': { '@id': 'https://www.dasmatas.com.br/#organization' }
+        }}
+      />
       {/* Hero */}
       <section className="py-24 bg-charcoal-700 relative overflow-hidden">
         <div className="absolute inset-0 opacity-10 bg-gradient-to-br from-earth-400 to-forest-700" />

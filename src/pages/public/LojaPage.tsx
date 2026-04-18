@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { SEO } from '../../components/SEO';
 import {
   ShoppingCart, Plus, Minus, X, ArrowRight, Search,
   Filter, Package, Check, ChevronLeft, ChevronRight,
@@ -537,6 +538,21 @@ export function LojaPage() {
 
   return (
     <div className="pt-20">
+      <SEO
+        title="Loja — Cafés Especiais para Comprar Online | Das Matas"
+        description="Compre cafés especiais selecionados com curadoria Das Matas. Grãos de origens únicas do Brasil, torra fresca, notas sensoriais detalhadas. Entrega para todo o país."
+        path="/loja"
+        schema={{
+          '@context': 'https://schema.org',
+          '@type': 'Store',
+          'name': 'Loja Das Matas — Cafés Especiais',
+          'url': 'https://www.dasmatas.com.br/loja',
+          'description': 'Loja online de cafés especiais com curadoria. Grãos selecionados de origens únicas do Brasil.',
+          'currenciesAccepted': 'BRL',
+          'paymentAccepted': 'Cartão de crédito, Pix',
+          'parentOrganization': { '@id': 'https://www.dasmatas.com.br/#organization' }
+        }}
+      />
       {/* Header */}
       <section className="py-20 bg-charcoal-700 text-center">
         <p className="font-display italic text-earth-300 text-lg mb-3">Escolha o seu café</p>

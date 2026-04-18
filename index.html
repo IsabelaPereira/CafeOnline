@@ -2,10 +2,151 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo-das-matas.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Das Matas — Clube de Cafés Especiais. Curadoria mensal de cafés excepcionais direto na sua casa." />
-    <title>Das Matas — Clube de Cafés Especiais</title>
+
+    <!-- Primary Meta Tags -->
+    <title>Das Matas — Clube de Cafés Especiais | Cafeteria de Especialidade em MG</title>
+    <meta name="title" content="Das Matas — Clube de Cafés Especiais | Cafeteria de Especialidade em MG" />
+    <meta name="description" content="Assine o Clube Das Matas e receba cafés especiais selecionados todo mês. Curadoria de origens únicas de Minas Gerais e do Brasil. Cafeteria de especialidade em MG. A partir de R$59/mês." />
+    <meta name="keywords" content="café especial, clube de café, assinatura café, café por assinatura, cafeteria especialidade, café especial Minas Gerais, presente café, caixa café especial, café especial Brasil, Das Matas café" />
+    <meta name="author" content="Das Matas" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#2D4A3E" />
+    <link rel="canonical" href="https://www.dasmatas.com.br/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.dasmatas.com.br/" />
+    <meta property="og:site_name" content="Das Matas" />
+    <meta property="og:title" content="Das Matas — Clube de Cafés Especiais | Cafeteria em MG" />
+    <meta property="og:description" content="Curadoria mensal de cafés especiais direto na sua casa. Produtores selecionados, origens únicas, torra fresca. Assine o clube e descubra o melhor do café brasileiro." />
+    <meta property="og:image" content="https://www.dasmatas.com.br/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Das Matas — Clube de Cafés Especiais" />
+    <meta property="og:locale" content="pt_BR" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://www.dasmatas.com.br/" />
+    <meta name="twitter:title" content="Das Matas — Clube de Cafés Especiais" />
+    <meta name="twitter:description" content="Curadoria mensal de cafés especiais direto na sua casa. Produtores selecionados, origens únicas, torra fresca." />
+    <meta name="twitter:image" content="https://www.dasmatas.com.br/og-image.jpg" />
+    <meta name="twitter:site" content="@dasmatas" />
+    <meta name="twitter:creator" content="@dasmatas" />
+
+    <!-- Favicon & Icons -->
+    <link rel="icon" type="image/png" href="/logo-das-matas.png" />
+    <link rel="apple-touch-icon" href="/logo-das-matas.png" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Schema.org — Organization + LocalBusiness + WebSite -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://www.dasmatas.com.br/#organization",
+          "name": "Das Matas",
+          "url": "https://www.dasmatas.com.br",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://www.dasmatas.com.br/logo-das-matas.png",
+            "width": 512,
+            "height": 512
+          },
+          "description": "Das Matas é uma marca dedicada à curadoria de cafés especiais, com clube de assinatura mensal e cafeteria de especialidade em Minas Gerais.",
+          "foundingLocation": {
+            "@type": "Place",
+            "name": "Minas Gerais, Brasil"
+          },
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "email": "contato@dasmatas.com.br",
+            "contactType": "customer service",
+            "availableLanguage": "Portuguese"
+          },
+          "sameAs": [
+            "https://www.instagram.com/dasmatas",
+            "https://www.facebook.com/dasmatas"
+          ]
+        },
+        {
+          "@type": "CafeOrCoffeeShop",
+          "@id": "https://www.dasmatas.com.br/#cafeteria",
+          "name": "Das Matas — Cafeteria de Especialidade",
+          "url": "https://www.dasmatas.com.br/cafeteria",
+          "image": "https://www.dasmatas.com.br/og-image.jpg",
+          "description": "Cafeteria de especialidade em Minas Gerais com carta de cafés de origem, método e experiência sensorial. Reserve sua mesa online.",
+          "servesCuisine": ["Café Especial", "Cafeteria"],
+          "priceRange": "$$",
+          "address": {
+            "@type": "PostalAddress",
+            "addressRegion": "MG",
+            "addressCountry": "BR"
+          },
+          "hasMap": "https://www.dasmatas.com.br/cafeteria",
+          "reservations": "https://www.dasmatas.com.br/reservas",
+          "parentOrganization": { "@id": "https://www.dasmatas.com.br/#organization" }
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://www.dasmatas.com.br/#website",
+          "url": "https://www.dasmatas.com.br",
+          "name": "Das Matas",
+          "description": "Clube de cafés especiais com curadoria mensal e cafeteria de especialidade em Minas Gerais.",
+          "publisher": { "@id": "https://www.dasmatas.com.br/#organization" },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://www.dasmatas.com.br/blog?q={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          },
+          "inLanguage": "pt-BR"
+        },
+        {
+          "@type": "Product",
+          "@id": "https://www.dasmatas.com.br/#clube",
+          "name": "Clube Das Matas — Assinatura de Cafés Especiais",
+          "url": "https://www.dasmatas.com.br/planos",
+          "image": "https://www.dasmatas.com.br/og-image.jpg",
+          "description": "Assine o Clube Das Matas e receba toda mês cafés especiais selecionados com curadoria, torra fresca e notas sensoriais exclusivas.",
+          "brand": { "@id": "https://www.dasmatas.com.br/#organization" },
+          "offers": [
+            {
+              "@type": "Offer",
+              "name": "Plano Explorador",
+              "price": "59.00",
+              "priceCurrency": "BRL",
+              "availability": "https://schema.org/InStock",
+              "url": "https://www.dasmatas.com.br/planos"
+            },
+            {
+              "@type": "Offer",
+              "name": "Plano Colecionador",
+              "price": "99.00",
+              "priceCurrency": "BRL",
+              "availability": "https://schema.org/InStock",
+              "url": "https://www.dasmatas.com.br/planos"
+            },
+            {
+              "@type": "Offer",
+              "name": "Plano Mestre",
+              "price": "149.00",
+              "priceCurrency": "BRL",
+              "availability": "https://schema.org/InStock",
+              "url": "https://www.dasmatas.com.br/planos"
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet" />

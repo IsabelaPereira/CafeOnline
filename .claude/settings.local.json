@@ -49,7 +49,9 @@
       "Bash(cmd /c \"npx tsc --noEmit 2>&1 | findstr /i error warning\")",
       "Bash(grep -l \"profiles\\\\|auth\" /c/apps/CafeOnline/src/services/*.ts)",
       "Bash(node -e \"require\\('child_process'\\).execSync\\('npx tsc --noEmit', {stdio:'pipe'}\\).toString\\(\\)\")",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(xargs grep *)",
+      "Bash(grep -n \"meta_title\\\\|meta_description\" /c/apps/CafeOnline/src/**/*.ts*)"
     ]
   }
 }

@@ -4,6 +4,7 @@ import { ArrowUpRight, Eye, Search, X, Calendar, Tag } from 'lucide-react';
 import { usePosts } from '../../hooks/useBlog';
 import { getPost } from '../../services/blog.service';
 import type { PostBlog } from '../../types';
+import { SEO } from '../../components/SEO';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function fmtDate(iso?: string) {
@@ -346,6 +347,19 @@ export function BlogPage() {
 
   return (
     <>
+      <SEO
+        title="Blog — Café Especial, Origens e Cultura do Café"
+        description="Descubra o universo do café especial: origens, produtores, métodos de preparo, notas sensoriais e muito mais. Conteúdo editorial Das Matas sobre cultura cafeeira."
+        path="/blog"
+        schema={{
+          '@context': 'https://schema.org',
+          '@type': 'Blog',
+          'name': 'Blog Das Matas',
+          'url': 'https://www.dasmatas.com.br/blog',
+          'description': 'Conteúdo editorial sobre café especial, origens, produtores e cultura cafeeira.',
+          'publisher': { '@id': 'https://www.dasmatas.com.br/#organization' }
+        }}
+      />
       <ProgressBar />
       <SearchOverlay
         open={searchOpen}
@@ -623,6 +637,26 @@ export function BlogPostPage() {
 
   return (
     <>
+      <SEO
+        title={post.metaTitle || post.titulo}
+        description={post.metaDescription || post.resumo || `Leia "${post.titulo}" no blog Das Matas — café especial, origens e cultura cafeeira.`}
+        path={`/blog/${post.slug}`}
+        image={post.imagemDestacada}
+        type="article"
+        schema={{
+          '@context': 'https://schema.org',
+          '@type': 'BlogPosting',
+          'headline': post.titulo,
+          'description': post.metaDescription || post.resumo,
+          'image': post.imagemDestacada,
+          'url': `https://www.dasmatas.com.br/blog/${post.slug}`,
+          'datePublished': post.publicadoEm,
+          'dateModified': post.publicadoEm,
+          'author': { '@type': 'Organization', 'name': 'Das Matas', 'url': 'https://www.dasmatas.com.br' },
+          'publisher': { '@id': 'https://www.dasmatas.com.br/#organization' },
+          'mainEntityOfPage': { '@type': 'WebPage', '@id': `https://www.dasmatas.com.br/blog/${post.slug}` }
+        }}
+      />
       <ProgressBar />
       <div className="min-h-screen bg-cream-50">
         {/* Hero do post */}

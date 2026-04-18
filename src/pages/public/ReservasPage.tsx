@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Calendar, Clock, Users, Check, MapPin, Phone, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { SEO } from '../../components/SEO';
 import { Input, Select, Textarea, Button, Alert } from '../../components/ui';
 import { createReserva, getDiasFechados, getMesas } from '../../services/reservas.service';
 import { getConfiguracoes } from '../../services/configuracoes.service';
@@ -299,6 +300,20 @@ export function ReservasPage() {
 
   return (
     <div className="pt-20">
+      <SEO
+        title="Reserve sua Mesa — Cafeteria Das Matas em Minas Gerais"
+        description="Reserve sua mesa na Cafeteria Das Matas. Café de especialidade, ambiente aconchegante e experiências sensoriais únicas em Minas Gerais. Reserva rápida e gratuita online."
+        path="/reservas"
+        schema={{
+          '@context': 'https://schema.org',
+          '@type': 'FoodEstablishment',
+          'name': 'Das Matas — Reserva de Mesa',
+          'url': 'https://www.dasmatas.com.br/reservas',
+          'description': 'Reserve sua mesa na Cafeteria Das Matas. Café de especialidade em Minas Gerais.',
+          'reservations': 'https://www.dasmatas.com.br/reservas',
+          'parentOrganization': { '@id': 'https://www.dasmatas.com.br/#organization' }
+        }}
+      />
       {/* Header */}
       <section className="py-20 bg-charcoal-700 text-center">
         <p className="font-display italic text-earth-300 text-lg mb-3">Nos visite</p>

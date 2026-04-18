@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { createLead } from '../../services/leads.service';
 import { PlanosShowcase } from '../../components/planos/PlanosShowcase';
+import { SEO } from '../../components/SEO';
 
 // ---------- utilities ----------
 
@@ -977,6 +978,23 @@ export function HomePage() {
   useReveal();
   return (
     <>
+      <SEO
+        title="Das Matas — Clube de Cafés Especiais | Cafeteria de Especialidade em MG"
+        description="Assine o Clube Das Matas e receba cafés especiais selecionados todo mês. Curadoria de origens únicas, torra fresca e notas sensoriais. Cafeteria de especialidade em Minas Gerais."
+        path="/"
+        schema={{
+          '@context': 'https://schema.org',
+          '@type': 'WebPage',
+          '@id': 'https://www.dasmatas.com.br/#webpage',
+          'name': 'Das Matas — Clube de Cafés Especiais',
+          'url': 'https://www.dasmatas.com.br/',
+          'description': 'Curadoria mensal de cafés especiais direto na sua casa. Cafeteria de especialidade em Minas Gerais.',
+          'breadcrumb': {
+            '@type': 'BreadcrumbList',
+            'itemListElement': [{ '@type': 'ListItem', 'position': 1, 'name': 'Início', 'item': 'https://www.dasmatas.com.br/' }]
+          }
+        }}
+      />
       <ScrollProgress />
       <Hero />
       <SobreOClube />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
+import { SEO } from '../../components/SEO';
 
 import { PlanosShowcase } from '../../components/planos/PlanosShowcase';
 import { getConfiguracoes } from '../../services/configuracoes.service';
@@ -17,6 +18,19 @@ export function PlanosPage() {
 
   return (
     <div className="pt-20">
+      <SEO
+        title="Planos do Clube — Assine e Receba Cafés Especiais Todo Mês"
+        description="Escolha seu plano Das Matas: Explorador, Colecionador ou Mestre. Cafés especiais selecionados, torra fresca, notas sensoriais e entrega mensal. A partir de R$59/mês. Cancele quando quiser."
+        path="/planos"
+        schema={{
+          '@context': 'https://schema.org',
+          '@type': 'ProductGroup',
+          'name': 'Clube Das Matas — Planos de Assinatura',
+          'url': 'https://www.dasmatas.com.br/planos',
+          'description': 'Planos mensais de assinatura de cafés especiais com curadoria exclusiva.',
+          'brand': { '@id': 'https://www.dasmatas.com.br/#organization' }
+        }}
+      />
       {/* Editorial Hero */}
       <section className="relative py-24 sm:py-32 bg-charcoal-700 text-center overflow-hidden">
         <div
@@ -91,8 +105,8 @@ export function PlanosPage() {
                     ['Conteúdos em vídeo', false, true, true],
                     ['Cursos online', false, true, true],
                     ['Edições limitadas e raras', false, false, true],
-                    ['Convites para wrokshop presencial', true, true, true],
-                    ['Ingressos gratuitos para wrokshop presencial', false, false, true],
+                    ['Convites para workshop presencial', true, true, true],
+                    ['Ingressos gratuitos para workshop presencial', false, false, true],
                     ['Desconto na loja', '—', '10%', '15%'],
                     ['Frete', 'Calculado', 'Calculado', 'Frete grátis'],
                   ].map(([label, d, e, c], i) => (
