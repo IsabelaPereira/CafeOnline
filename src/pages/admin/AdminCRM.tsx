@@ -2327,7 +2327,7 @@ export function AdminCRM() {
                   { label: 'Plano desejado', value: nomePlano(selectedLead.planoDesejado) || '—' },
                   { label: 'Lead desde', value: new Date(selectedLead.createdAt).toLocaleDateString('pt-BR') },
                   { label: 'Último contato',   value: selectedLead.ultimoContato ? new Date(selectedLead.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR') : '—' },
-                  { label: 'Próximo follow-up', value: selectedLead.proximoFollowUp ? new Date(selectedLead.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR') : '—' },
+                  { label: 'Próximo follow-up', value: selectedLead.proximoFollowUp ? new Date(selectedLead.proximoFollowUp).toLocaleDateString('pt-BR') : '—' },
                 ].map(info => (
                   <div key={info.label} className="bg-cream-50 rounded-sm p-3">
                     <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>
@@ -2489,7 +2489,7 @@ export function AdminCRM() {
                                   {h.proximoFollowUp && (
                                     <p className="text-[10px] text-charcoal-500">
                                       <span className="text-charcoal-400">Follow-up:</span>{' '}
-                                      {new Date(h.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR')}
+                                      {new Date(h.proximoFollowUp).toLocaleDateString('pt-BR')}
                                     </p>
                                   )}
                                 </div>
@@ -3021,7 +3021,7 @@ export function AdminCRM() {
                                                 {h.interesse && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Interesse:</span> {h.interesse}</p>}
                                                 {h.planoDesejado && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Plano:</span> {nomePlano(h.planoDesejado)}</p>}
                                                 {h.ultimoContato && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Último contato:</span> {new Date(h.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
-                                                {h.proximoFollowUp && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Follow-up:</span> {new Date(h.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
+                                                {h.proximoFollowUp && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Follow-up:</span> {new Date(h.proximoFollowUp).toLocaleDateString('pt-BR')}</p>}
                                               </div>
                                               {h.tags && h.tags.length > 0 && (
                                                 <div className="flex flex-wrap gap-1 pt-0.5">
