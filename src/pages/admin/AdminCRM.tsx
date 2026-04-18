@@ -16,7 +16,7 @@ import {
 import { getLeads, getHistoricoEtapaLead, deleteHistoricoEtapaLead, deleteHistoricoEtapaItem, updateLeadEtapa, addInteracao, updateLeadClienteId, updateLead, getFollowUps, marcarFollowUpFeito, createLead } from '../../services/leads.service';
 import { getClientes, updateCliente, updateClientePreferencias, createClienteFromLead, createEndereco } from '../../services/clientes.service';
 import { getPedidos } from '../../services/pedidos.service';
-import { getAssinaturasCliente } from '../../services/assinaturas.service';
+import { getAssinaturasCliente, getPlanos } from '../../services/assinaturas.service';
 import { getReservasCliente } from '../../services/reservas.service';
 import type { Lead, LeadEtapa, Cliente, Pedido, Assinatura, Reserva, HistoricoEtapaLead } from '../../types';
 
@@ -80,7 +80,7 @@ function LeadCard({ lead, onClick, onDragStart, onDragEnd, colunasVis }: {
         </div>
         {vis.has('origem') && <span className="text-sm">{origemIcon[lead.origem] || '📋'}</span>}
       </div>
-      {vis.has('plano') && lead.planoDesejado && <p className="text-xs text-forest-600 mb-2">→ {lead.planoDesejado}</p>}
+      {vis.has('plano') && lead.planoDesejado && <p className="text-xs text-forest-600 mb-2">→ {nomePlano(lead.planoDesejado)}</p>}
       {vis.has('tags') && lead.tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
           {lead.tags.map(tag => (
@@ -655,7 +655,7 @@ function FollowUpTab({
                     </p>
                   )}
                   {colunasFUVis.has('plano') && lead.planoDesejado && (
-                    <p className="text-xs text-forest-600 mt-0.5">→ {lead.planoDesejado}</p>
+                    <p className="text-xs text-forest-600 mt-0.5">→ {nomePlano(lead.planoDesejado)}</p>
                   )}
                   {colunasFUVis.has('tags') && (lead.tags ?? []).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
@@ -903,6 +903,8 @@ export function AdminCRM() {
   const [search, setSearch]             = useState('');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [novoModal, setNovoModal]       = useState(false);
+  const [planosMap, setPlanosMap]       = useState<Record<string, string>>({});
+  const nomePlano = (id?: string | null) => id ? (planosMap[id] || id) : '';
 
   // ── Clientes ───────────────────────────────────────────────────────────────
   const [clientes, setClientes]               = useState<Cliente[]>([]);
@@ -1074,6 +1076,11 @@ export function AdminCRM() {
   useEffect(() => {
     getLeads().then(setLeads).catch(console.error);
     getClientes().then(setClientes).catch(console.error);
+    getPlanos().then(list => {
+      const map: Record<string, string> = {};
+      list.forEach(p => { map[p.id] = p.nome; });
+      setPlanosMap(map);
+    }).catch(() => {});
   }, []);
 
   // Carrega follow-ups quando a aba for selecionada
@@ -2048,7 +2055,7 @@ export function AdminCRM() {
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${etapa?.color}`}>{etapa?.label}</span>
                         </td>
                       )}
-                      {colunasLeadVis.has('plano')       && <td className="table-td text-charcoal-500 text-sm">{lead.planoDesejado || '—'}</td>}
+                      {colunasLeadVis.has('plano')       && <td className="table-td text-charcoal-500 text-sm">{nomePlano(lead.planoDesejado) || '—'}</td>}
                       {colunasLeadVis.has('followup')    && (
                         <td className="table-td text-charcoal-500 text-sm">
                           {lead.proximoFollowUp ? new Date(lead.proximoFollowUp).toLocaleDateString('pt-BR') : '—'}
@@ -2317,7 +2324,7 @@ export function AdminCRM() {
                   { label: 'Telefone',  value: selectedLead.telefone || '—' },
                   { label: 'Origem',    value: selectedLead.origem    },
                   { label: 'Interesse', value: selectedLead.interesse || '—' },
-                  { label: 'Plano desejado', value: selectedLead.planoDesejado || '—' },
+                  { label: 'Plano desejado', value: nomePlano(selectedLead.planoDesejado) || '—' },
                   { label: 'Lead desde', value: new Date(selectedLead.createdAt).toLocaleDateString('pt-BR') },
                   { label: 'Último contato',   value: selectedLead.ultimoContato ? new Date(selectedLead.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR') : '—' },
                   { label: 'Próximo follow-up', value: selectedLead.proximoFollowUp ? new Date(selectedLead.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR') : '—' },
@@ -2470,7 +2477,7 @@ export function AdminCRM() {
                                   )}
                                   {h.planoDesejado && (
                                     <p className="text-[10px] text-charcoal-500">
-                                      <span className="text-charcoal-400">Plano:</span> {h.planoDesejado}
+                                      <span className="text-charcoal-400">Plano:</span> {nomePlano(h.planoDesejado)}
                                     </p>
                                   )}
                                   {h.ultimoContato && (
@@ -2917,7 +2924,7 @@ export function AdminCRM() {
                             {/* Detalhes */}
                             <div className="grid grid-cols-2 gap-2 text-xs text-charcoal-500">
                               <span>Origem: <strong className="text-charcoal-700 capitalize">{lead.origem}</strong></span>
-                              {lead.planoDesejado && <span>Plano: <strong className="text-charcoal-700">{lead.planoDesejado}</strong></span>}
+                              {lead.planoDesejado && <span>Plano: <strong className="text-charcoal-700">{nomePlano(lead.planoDesejado)}</strong></span>}
                               {lead.responsavel && <span>Responsável: <strong className="text-charcoal-700">{lead.responsavel}</strong></span>}
                               <span>Lead desde: <strong className="text-charcoal-700">{new Date(lead.createdAt).toLocaleDateString('pt-BR')}</strong></span>
                             </div>
@@ -3012,7 +3019,7 @@ export function AdminCRM() {
                                               <div className="grid grid-cols-2 gap-x-3 gap-y-1">
                                                 {h.origem && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Origem:</span> {h.origem}</p>}
                                                 {h.interesse && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Interesse:</span> {h.interesse}</p>}
-                                                {h.planoDesejado && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Plano:</span> {h.planoDesejado}</p>}
+                                                {h.planoDesejado && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Plano:</span> {nomePlano(h.planoDesejado)}</p>}
                                                 {h.ultimoContato && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Último contato:</span> {new Date(h.ultimoContato + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
                                                 {h.proximoFollowUp && <p className="text-[10px] text-charcoal-500"><span className="text-charcoal-400">Follow-up:</span> {new Date(h.proximoFollowUp + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
                                               </div>
