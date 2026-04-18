@@ -36,12 +36,6 @@ export function LoginPage() {
     }
   };
 
-  const demoAccounts = [
-    { label: 'Admin', email: 'admin@dasmatas.com.br', pass: 'Admin@123!' },
-    { label: 'Cliente', email: 'marina.andrade@hotmail.com', pass: 'Cliente@123!' },
-    { label: 'Financeiro', email: 'financeiro@dasmatas.com.br', pass: 'Fin@123!' },
-  ];
-
   return (
     <div className="min-h-screen bg-cream-50 flex">
       {/* ============================================================
@@ -338,32 +332,6 @@ export function LoginPage() {
               className="shrink-0 transition-transform duration-300 group-hover:translate-x-1"
             />
           </Link>
-
-          {/* demo accounts */}
-          <div className="mt-12" style={{ animation: 'fadeIn 1s 0.6s both' }}>
-            <div className="flex items-center gap-3 mb-3">
-              <span className="h-px w-6 bg-charcoal-200" />
-              <span className="font-mono text-[9px] tracking-[0.35em] uppercase text-charcoal-400">
-                Acesso demo
-              </span>
-              <span className="h-px flex-1 bg-charcoal-200" />
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {demoAccounts.map(acc => (
-                <button
-                  key={acc.label}
-                  type="button"
-                  onClick={() => {
-                    setEmail(acc.email);
-                    setPassword(acc.pass);
-                  }}
-                  className="py-3 px-2 bg-cream-100/70 hover:bg-forest-500 hover:text-cream-100 text-charcoal-500 rounded-sm text-[10px] font-mono tracking-[0.25em] uppercase transition-all duration-200 active:scale-[0.97]"
-                >
-                  {acc.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* footer signature */}
           <div className="mt-12 flex items-center justify-between font-mono text-[10px] tracking-[0.25em] uppercase text-charcoal-300">

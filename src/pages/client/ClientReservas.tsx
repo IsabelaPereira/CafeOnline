@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Calendar, Clock, Users, Plus, CheckCircle, XCircle, AlertCircle, ChevronRight, UserCheck } from 'lucide-react';
+import { Calendar, Clock, Users, Plus, CheckCircle, XCircle, AlertCircle, ChevronRight, UserCheck, Pencil, X } from 'lucide-react';
 import { Card, Button, Input, Alert } from '../../components/ui';
 import { useCliente } from '../../hooks/useCliente';
 import { useAuth } from '../../contexts/AuthContext';
-import { getReservasCliente, createReserva } from '../../services/reservas.service';
+import { getReservasCliente, createReserva, cancelarReservaCliente, editarReservaCliente } from '../../services/reservas.service';
 import { getConfiguracoes } from '../../services/configuracoes.service';
 import type { Reserva } from '../../types';
 
@@ -322,7 +322,11 @@ export function ClientReservas() {
                 <div>
                   <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Próximas</p>
                   <div className="space-y-3">
-                    {reservasAtivas.map(r => <ReservaCard key={r.id} reserva={r} />)}
+                    {reservasAtivas.map(r => (
+                      <ReservaCard key={r.id} reserva={r} horarios={horarios} onUpdated={() => {
+                        if (cliente) getReservasCliente(cliente.id).then(setReservas).catch(() => {});
+                      }} />
+                    ))}
                   </div>
                 </div>
               )}
@@ -332,7 +336,7 @@ export function ClientReservas() {
                 <div>
                   <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Histórico</p>
                   <div className="space-y-3">
-                    {reservasPassadas.map(r => <ReservaCard key={r.id} reserva={r} />)}
+                    {reservasPassadas.map(r => <ReservaCard key={r.id} reserva={r} horarios={horarios} />)}
                   </div>
                 </div>
               )}
@@ -344,12 +348,53 @@ export function ClientReservas() {
   );
 }
 
-function ReservaCard({ reserva }: { reserva: Reserva }) {
+function ReservaCard({ reserva, horarios, onUpdated }: { reserva: Reserva; horarios: string[]; onUpdated?: () => void }) {
   const s = STATUS_CONFIG[reserva.status];
+  const podeEditar = (reserva.status === 'solicitada' || reserva.status === 'confirmada') && new Date(reserva.data) >= new Date();
+
+  const [editando, setEditando] = useState(false);
+  const [confirmaCancelar, setConfirmaCancelar] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [editForm, setEditForm] = useState({
+    data: reserva.data,
+    horario: reserva.horario,
+    pessoas: String(reserva.pessoas),
+    duracaoMins: String(reserva.duracaoMins),
+    observacoes: reserva.observacoes || '',
+  });
+
+  const today = new Date().toISOString().split('T')[0];
+
+  async function handleCancelar() {
+    setSalvando(true);
+    try {
+      await cancelarReservaCliente(reserva.id);
+      setConfirmaCancelar(false);
+      onUpdated?.();
+    } catch { alert('Erro ao cancelar reserva.'); }
+    finally { setSalvando(false); }
+  }
+
+  async function handleSalvarEdicao() {
+    if (!editForm.data || !editForm.horario || !editForm.pessoas) return;
+    setSalvando(true);
+    try {
+      await editarReservaCliente(reserva.id, {
+        data: editForm.data,
+        horario: editForm.horario,
+        pessoas: Number(editForm.pessoas),
+        duracaoMins: Number(editForm.duracaoMins),
+        observacoes: editForm.observacoes || undefined,
+      });
+      setEditando(false);
+      onUpdated?.();
+    } catch { alert('Erro ao alterar reserva.'); }
+    finally { setSalvando(false); }
+  }
+
   return (
     <Card padding={false}>
       <div className="p-4 flex items-start gap-4">
-        {/* Data */}
         <div className="shrink-0 w-12 text-center bg-cream-100 rounded-sm py-2">
           <p className="text-xs text-charcoal-400 leading-none">
             {new Date(reserva.data + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
@@ -359,7 +404,6 @@ function ReservaCard({ reserva }: { reserva: Reserva }) {
           </p>
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-sm border ${s.color}`}>
@@ -386,8 +430,139 @@ function ReservaCard({ reserva }: { reserva: Reserva }) {
               {reserva.observacoesInternas}
             </p>
           )}
+
+          {podeEditar && !editando && !confirmaCancelar && (
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => setEditando(true)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-earth-600 hover:text-earth-700 px-2.5 py-1.5 border border-earth-200 rounded-sm hover:bg-earth-50 transition-colors"
+              >
+                <Pencil size={12} /> Alterar
+              </button>
+              <button
+                onClick={() => setConfirmaCancelar(true)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 px-2.5 py-1.5 border border-red-200 rounded-sm hover:bg-red-50 transition-colors"
+              >
+                <X size={12} /> Cancelar
+              </button>
+            </div>
+          )}
+
+          {confirmaCancelar && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-sm">
+              <p className="text-sm text-red-700 mb-2">Tem certeza que deseja cancelar esta reserva?</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCancelar}
+                  disabled={salvando}
+                  className="text-xs font-medium text-white bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-sm disabled:opacity-50"
+                >
+                  {salvando ? 'Cancelando...' : 'Sim, cancelar'}
+                </button>
+                <button
+                  onClick={() => setConfirmaCancelar(false)}
+                  className="text-xs font-medium text-charcoal-600 hover:text-charcoal-700 px-3 py-1.5 border border-cream-200 rounded-sm"
+                >
+                  Voltar
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {editando && (
+        <div className="px-4 pb-4 border-t border-cream-200 pt-4 space-y-3">
+          <p className="text-xs font-medium text-charcoal-500 uppercase tracking-wider">Alterar reserva</p>
+          <p className="text-xs text-earth-600 bg-earth-50 border border-earth-100 rounded-sm px-2.5 py-1.5">
+            Ao alterar, sua reserva voltará para aprovação e será necessário confirmar novamente.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-charcoal-500 mb-1">Data</label>
+              <input
+                type="date"
+                min={today}
+                value={editForm.data}
+                onChange={e => setEditForm(f => ({ ...f, data: e.target.value }))}
+                className="w-full border border-cream-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-charcoal-500 mb-1">Horário</label>
+              {horarios.length > 0 ? (
+                <select
+                  value={editForm.horario}
+                  onChange={e => setEditForm(f => ({ ...f, horario: e.target.value }))}
+                  className="w-full border border-cream-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-400"
+                >
+                  {horarios.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              ) : (
+                <input
+                  type="time"
+                  value={editForm.horario}
+                  onChange={e => setEditForm(f => ({ ...f, horario: e.target.value }))}
+                  className="w-full border border-cream-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-400"
+                />
+              )}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-charcoal-500 mb-1">Pessoas</label>
+              <select
+                value={editForm.pessoas}
+                onChange={e => setEditForm(f => ({ ...f, pessoas: e.target.value }))}
+                className="w-full border border-cream-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-400"
+              >
+                {[1,2,3,4,5,6,7,8,10,12].map(n => (
+                  <option key={n} value={n}>{n} {n === 1 ? 'pessoa' : 'pessoas'}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-charcoal-500 mb-1">Duração</label>
+              <select
+                value={editForm.duracaoMins}
+                onChange={e => setEditForm(f => ({ ...f, duracaoMins: e.target.value }))}
+                className="w-full border border-cream-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-400"
+              >
+                <option value="30">30 minutos</option>
+                <option value="60">1 hora</option>
+                <option value="90">1h 30min</option>
+                <option value="120">2 horas</option>
+                <option value="150">2h 30min</option>
+                <option value="180">3 horas</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-charcoal-500 mb-1">Observações</label>
+            <textarea
+              value={editForm.observacoes}
+              onChange={e => setEditForm(f => ({ ...f, observacoes: e.target.value }))}
+              rows={2}
+              className="w-full border border-cream-200 rounded-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-400 resize-none"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSalvarEdicao}
+              disabled={salvando || !editForm.data || !editForm.horario}
+              className="text-xs font-medium text-white bg-forest-500 hover:bg-forest-600 px-4 py-2 rounded-sm disabled:opacity-50"
+            >
+              {salvando ? 'Salvando...' : 'Salvar alterações'}
+            </button>
+            <button
+              onClick={() => { setEditando(false); setEditForm({ data: reserva.data, horario: reserva.horario, pessoas: String(reserva.pessoas), duracaoMins: String(reserva.duracaoMins), observacoes: reserva.observacoes || '' }); }}
+              className="text-xs font-medium text-charcoal-600 hover:text-charcoal-700 px-4 py-2 border border-cream-200 rounded-sm"
+            >
+              Cancelar edição
+            </button>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
