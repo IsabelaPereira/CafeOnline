@@ -51,7 +51,11 @@
       "Bash(node -e \"require\\('child_process'\\).execSync\\('npx tsc --noEmit', {stdio:'pipe'}\\).toString\\(\\)\")",
       "Bash(npm run *)",
       "Bash(xargs grep *)",
-      "Bash(grep -n \"meta_title\\\\|meta_description\" /c/apps/CafeOnline/src/**/*.ts*)"
+      "Bash(grep -n \"meta_title\\\\|meta_description\" /c/apps/CafeOnline/src/**/*.ts*)",
+      "Bash(ls -la .github/workflows/)",
+      "Bash(ls -la server/)",
+      "Bash(ls -la scripts/)",
+      "Bash(ls -la CICD.md)"
     ]
   }
 }
