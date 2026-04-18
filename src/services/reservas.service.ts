@@ -88,6 +88,29 @@ export async function updateReservaStatus(
   if (error) throw error;
 }
 
+export async function cancelarReservaCliente(id: string): Promise<void> {
+  const { error } = await supabase.from('reservas')
+    .update({ status: 'cancelada' }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function editarReservaCliente(
+  id: string,
+  dados: { data: string; horario: string; pessoas: number; duracaoMins: number; observacoes?: string },
+): Promise<void> {
+  const { error } = await supabase.from('reservas').update({
+    data: dados.data,
+    horario: dados.horario,
+    pessoas: dados.pessoas,
+    duracao_mins: dados.duracaoMins,
+    observacoes: dados.observacoes,
+    status: 'solicitada',
+    mesa_id: null,
+    mesas_alocadas: [],
+  }).eq('id', id);
+  if (error) throw error;
+}
+
 export async function updateReservaMesas(id: string, mesasAlocadas: string[]): Promise<void> {
   const { error } = await supabase.from('reservas')
     .update({ mesas_alocadas: mesasAlocadas }).eq('id', id);
