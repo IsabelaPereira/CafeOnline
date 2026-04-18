@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Package, ShoppingBag, Users, Calendar, BookOpen,
   CreditCard, BarChart3, Settings, LogOut, Menu, Bell,
-  ChevronDown, Truck, Star, Search, ArrowUpRight, ClipboardList
+  ChevronDown, Truck, Star, Search, ArrowUpRight, ClipboardList, Shield
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -11,20 +11,21 @@ interface NavItem {
   icon: React.ReactNode;
   label: string;
   to: string;
+  permission?: string;
   children?: { label: string; to: string }[];
 }
 
-const navItems: NavItem[] = [
-  { icon: <LayoutDashboard size={16} />, label: 'Painel', to: '/admin' },
+const allNavItems: NavItem[] = [
+  { icon: <LayoutDashboard size={16} />, label: 'Painel', to: '/admin', permission: 'dashboard' },
   {
-    icon: <ShoppingBag size={16} />, label: 'Pedidos', to: '/admin/pedidos',
+    icon: <ShoppingBag size={16} />, label: 'Pedidos', to: '/admin/pedidos', permission: 'pedidos',
     children: [
       { label: 'Lista de pedidos', to: '/admin/pedidos' },
       { label: 'Novo pedido', to: '/admin/pedidos/novo' },
     ],
   },
   {
-    icon: <Star size={16} />, label: 'Assinaturas', to: '/admin/assinaturas',
+    icon: <Star size={16} />, label: 'Assinaturas', to: '/admin/assinaturas', permission: 'assinaturas',
     children: [
       { label: 'Assinantes', to: '/admin/assinaturas' },
       { label: 'Planos', to: '/admin/assinaturas/planos' },
@@ -32,7 +33,7 @@ const navItems: NavItem[] = [
     ],
   },
   {
-    icon: <Users size={16} />, label: 'CRM · Leads', to: '/admin/crm',
+    icon: <Users size={16} />, label: 'CRM · Leads', to: '/admin/crm', permission: 'crm',
     children: [
       { label: 'Funil de leads', to: '/admin/crm' },
       { label: 'Todos os leads', to: '/admin/crm/leads' },
@@ -40,18 +41,18 @@ const navItems: NavItem[] = [
       { label: 'Follow-up', to: '/admin/crm/followup' },
     ],
   },
-  { icon: <Calendar size={16} />, label: 'Reservas', to: '/admin/reservas' },
+  { icon: <Calendar size={16} />, label: 'Reservas', to: '/admin/reservas', permission: 'reservas' },
   {
-    icon: <Package size={16} />, label: 'Produtos', to: '/admin/produtos',
+    icon: <Package size={16} />, label: 'Produtos', to: '/admin/produtos', permission: 'produtos',
     children: [
       { label: 'Catálogo', to: '/admin/produtos' },
       { label: 'Estoque', to: '/admin/produtos/estoque' },
       { label: 'Categorias', to: '/admin/produtos/categorias' },
     ],
   },
-  { icon: <BookOpen size={16} />, label: 'Editorial · Blog', to: '/admin/blog' },
+  { icon: <BookOpen size={16} />, label: 'Editorial · Blog', to: '/admin/blog', permission: 'blog' },
   {
-    icon: <CreditCard size={16} />, label: 'Financeiro', to: '/admin/financeiro',
+    icon: <CreditCard size={16} />, label: 'Financeiro', to: '/admin/financeiro', permission: 'financeiro',
     children: [
       { label: 'Visão geral', to: '/admin/financeiro' },
       { label: 'Contas a receber', to: '/admin/financeiro/receber' },
@@ -61,10 +62,11 @@ const navItems: NavItem[] = [
       { label: 'Planejador', to: '/admin/financeiro/planejador' },
     ],
   },
-  { icon: <Truck size={16} />, label: 'Logística', to: '/admin/logistica' },
-  { icon: <BarChart3 size={16} />, label: 'Relatórios', to: '/admin/relatorios' },
-  { icon: <ClipboardList size={16} />, label: 'Logs de Auditoria', to: '/admin/logs' },
-  { icon: <Settings size={16} />, label: 'Configurações', to: '/admin/configuracoes' },
+  { icon: <Truck size={16} />, label: 'Logística', to: '/admin/logistica', permission: 'logistica' },
+  { icon: <BarChart3 size={16} />, label: 'Relatórios', to: '/admin/relatorios', permission: 'relatorios' },
+  { icon: <ClipboardList size={16} />, label: 'Logs de Auditoria', to: '/admin/logs', permission: 'logs' },
+  { icon: <Settings size={16} />, label: 'Configurações', to: '/admin/configuracoes', permission: 'configuracoes' },
+  { icon: <Shield size={16} />, label: 'Usuários', to: '/admin/usuarios', permission: 'usuarios' },
 ];
 
 function NavItemComponent({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
@@ -159,9 +161,13 @@ function NavItemComponent({ item, collapsed }: { item: NavItem; collapsed: boole
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission, isMaster } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const navItems = allNavItems.filter(item =>
+    !item.permission || hasPermission(item.permission),
+  );
 
   const handleLogout = () => {
     logout();
@@ -253,8 +259,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
               <p className="font-editorial text-sm text-cream-100 truncate leading-tight">
                 {user?.name ?? 'Administrador'}
               </p>
-              <p className="font-mono text-[9px] tracking-[0.25em] uppercase text-cream-100/45 mt-0.5 truncate">
+              <p className="font-mono text-[9px] tracking-[0.25em] uppercase text-cream-100/45 mt-0.5 truncate flex items-center gap-1.5">
                 {user?.role ?? 'admin'}
+                {isMaster && <span className="px-1 py-px bg-gold-400/20 text-gold-300 text-[7px] rounded-sm">MASTER</span>}
               </p>
             </div>
             <button

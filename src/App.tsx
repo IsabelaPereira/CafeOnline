@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { createLead } from './services/leads.service';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CartProvider } from './contexts/CartContext';
+import { getFirstAllowedRoute } from './lib/permissions';
 
 // Layouts
 import { PublicLayout } from './components/layout/PublicLayout';
@@ -49,6 +50,7 @@ import { AdminLogistica } from './pages/admin/AdminLogistica';
 import { AdminEdicoes } from './pages/admin/AdminEdicoes';
 import { AdminLogs } from './pages/admin/AdminLogs';
 import { AdminCategorias } from './pages/admin/AdminCategorias';
+import { AdminUsuarios } from './pages/admin/AdminUsuarios';
 
 // ---- Protected Routes ----
 function ProtectedClientRoute({ children }: { children: React.ReactNode }) {
@@ -58,10 +60,11 @@ function ProtectedClientRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isAdmin, loading } = useAuth();
+function ProtectedAdminRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
+  const { isAuthenticated, isAdmin, hasPermission, permissions, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-forest-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!isAuthenticated || !isAdmin) return <Navigate to="/login" replace />;
+  if (permission && !hasPermission(permission)) return <Navigate to={getFirstAllowedRoute(permissions)} replace />;
   return <>{children}</>;
 }
 
@@ -373,123 +376,128 @@ function AppRoutes() {
 
       {/* Admin Routes */}
       <Route path="/admin" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="dashboard">
           <AdminLayout><AdminDashboard /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/pedidos" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="pedidos">
           <AdminLayout><AdminPedidos /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/assinaturas" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="assinaturas">
           <AdminLayout><AdminAssinaturas /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/assinaturas/planos" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="assinaturas">
           <AdminLayout><AdminAssinaturas /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/assinaturas/edicoes" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="assinaturas">
           <AdminLayout><AdminEdicoes /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/crm" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="crm">
           <AdminLayout><AdminCRM /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/crm/leads" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="crm">
           <AdminLayout><AdminCRM /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/crm/clientes" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="crm">
           <AdminLayout><AdminCRM /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/crm/followup" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="crm">
           <AdminLayout><AdminCRM /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/reservas" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="reservas">
           <AdminLayout><AdminReservas /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/produtos" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="produtos">
           <AdminLayout><AdminProdutos /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/produtos/estoque" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="produtos">
           <AdminLayout><AdminProdutos /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/produtos/categorias" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="produtos">
           <AdminLayout><AdminCategorias /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/blog" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="blog">
           <AdminLayout><AdminBlog /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/financeiro" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="financeiro">
           <AdminLayout><AdminFinanceiro /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/financeiro/receber" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="financeiro">
           <AdminLayout><AdminFinanceiro /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/financeiro/pagar" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="financeiro">
           <AdminLayout><AdminFinanceiro /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/financeiro/dre" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="financeiro">
           <AdminLayout><AdminFinanceiro /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/financeiro/fluxo" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="financeiro">
           <AdminLayout><AdminFinanceiro /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/financeiro/planejador" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="financeiro">
           <AdminLayout><AdminFinanceiro /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/logistica" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="logistica">
           <AdminLayout><AdminLogistica /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/relatorios" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="relatorios">
           <AdminLayout><AdminRelatorios /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/configuracoes" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="configuracoes">
           <AdminLayout><AdminConfiguracoes /></AdminLayout>
         </ProtectedAdminRoute>
       } />
       <Route path="/admin/logs" element={
-        <ProtectedAdminRoute>
+        <ProtectedAdminRoute permission="logs">
           <AdminLayout><AdminLogs /></AdminLayout>
+        </ProtectedAdminRoute>
+      } />
+      <Route path="/admin/usuarios" element={
+        <ProtectedAdminRoute permission="usuarios">
+          <AdminLayout><AdminUsuarios /></AdminLayout>
         </ProtectedAdminRoute>
       } />
 

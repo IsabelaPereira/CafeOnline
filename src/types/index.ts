@@ -9,6 +9,8 @@ export interface User {
   email: string;
   role: 'admin' | 'financeiro' | 'operacoes' | 'marketing' | 'conteudo' | 'atendimento' | 'estoque' | 'cliente';
   avatar?: string;
+  isMaster: boolean;
+  active: boolean;
   createdAt: string;
 }
 

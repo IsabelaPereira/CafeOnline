@@ -19,7 +19,9 @@ export const supabase = createClient(supabaseUrl || 'https://placeholder.supabas
 
 // ---- Tipos de banco (snake_case → mapeados nos services) ----
 export type Tables = {
-  profiles:               { id: string; name: string; role: string; avatar_url: string | null; created_at: string };
+  profiles:               { id: string; name: string; role: string; avatar_url: string | null; is_master: boolean; active: boolean; created_at: string };
+  role_permissions:       { id: string; role: string; permission: string; created_at: string };
+  user_permission_overrides: { id: string; user_id: string; permission: string; granted: boolean; created_at: string };
   clientes:               { id: string; user_id: string | null; phone: string | null; cpf: string | null; birthdate: string | null; preferencia_cafe: string | null; tipo_moagem: string | null; created_at: string };
   enderecos:              { id: string; cliente_id: string; apelido: string | null; cep: string; logradouro: string; numero: string; complemento: string | null; bairro: string; cidade: string; estado: string; padrao: boolean; created_at: string };
   planos:                 { id: string; nome: string; descricao: string | null; preco: number; beneficios: string[]; destaque: boolean; ativo: boolean; ordem: number; created_at: string };

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { getFirstAllowedRoute } from '../../lib/permissions';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -9,20 +10,30 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { login, user } = useAuth();
+  const { login, user, permissions } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user) navigate(user.role === 'cliente' ? '/cliente' : '/admin');
-  }, [user, navigate]);
+    if (user) {
+      if (user.role === 'cliente') {
+        navigate('/cliente');
+      } else {
+        navigate(getFirstAllowedRoute(permissions));
+      }
+    }
+  }, [user, permissions, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const ok = await login(email, password);
+    const result = await login(email, password);
     setLoading(false);
-    if (!ok) setError('E-mail ou senha incorretos.');
+    if (!result.ok) {
+      setError(result.inactive
+        ? 'Sua conta foi desativada. Entre em contato com o administrador.'
+        : 'E-mail ou senha incorretos.');
+    }
   };
 
   const demoAccounts = [
