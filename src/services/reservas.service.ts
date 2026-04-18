@@ -34,6 +34,16 @@ export async function getReservas(data?: string): Promise<Reserva[]> {
   return (rows ?? []).map(mapReserva);
 }
 
+export async function getReservasPorPeriodo(inicio: string, fim: string): Promise<Reserva[]> {
+  const { data: rows, error } = await supabase
+    .from('reservas').select('*')
+    .gte('data', inicio)
+    .lte('data', fim)
+    .order('data').order('horario');
+  if (error) throw error;
+  return (rows ?? []).map(mapReserva);
+}
+
 export async function getReservasCliente(clienteId: string): Promise<Reserva[]> {
   const { data, error } = await supabase
     .from('reservas').select('*')

@@ -48,7 +48,8 @@
       "Bash(cmd /c \"npx tsc --noEmit 2>&1 | findstr error\")",
       "Bash(cmd /c \"npx tsc --noEmit 2>&1 | findstr /i error warning\")",
       "Bash(grep -l \"profiles\\\\|auth\" /c/apps/CafeOnline/src/services/*.ts)",
-      "Bash(node -e \"require\\('child_process'\\).execSync\\('npx tsc --noEmit', {stdio:'pipe'}\\).toString\\(\\)\")"
+      "Bash(node -e \"require\\('child_process'\\).execSync\\('npx tsc --noEmit', {stdio:'pipe'}\\).toString\\(\\)\")",
+      "Bash(npm run *)"
     ]
   }
 }

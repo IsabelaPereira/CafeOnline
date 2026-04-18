@@ -97,9 +97,8 @@ export function AdminConfiguracoes() {
 
       <Tabs
         tabs={[
-          { id: 'empresa',    label: 'Empresa' },
-          { id: 'cobranca',   label: 'Cobrança' },
-          { id: 'permissoes', label: 'Permissões' },
+          { id: 'empresa',  label: 'Empresa' },
+          { id: 'cobranca', label: 'Cobrança' },
         ]}
         active={tab}
         onChange={setTab}
@@ -175,39 +174,6 @@ export function AdminConfiguracoes() {
         </Card>
       )}
 
-      {/* ── PERMISSÕES ─────────────────────────────────────────────────── */}
-      {tab === 'permissoes' && (
-        <Card>
-          <h3 className="font-serif text-xl text-charcoal-700 mb-6">Perfis de acesso</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-cream-50">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-charcoal-400 uppercase tracking-wider">Módulo</th>
-                  {['Admin', 'Financeiro', 'Operações', 'Marketing', 'Conteúdo', 'Atendimento'].map(role => (
-                    <th key={role} className="px-4 py-3 text-center text-xs font-medium text-charcoal-400 uppercase tracking-wider">{role}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-cream-100">
-                {[
-                  'Dashboard', 'Pedidos', 'Assinaturas', 'CRM / Leads', 'Reservas',
-                  'Produtos', 'Blog', 'Financeiro', 'Logística', 'Relatórios', 'Configurações',
-                ].map(mod => (
-                  <tr key={mod}>
-                    <td className="px-4 py-3 text-sm text-charcoal-700">{mod}</td>
-                    {[true, true, true, true, true, true].map((_, i) => (
-                      <td key={i} className="px-4 py-3 text-center">
-                        <input type="checkbox" defaultChecked className="accent-forest-500 w-4 h-4" />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Calendar, Check, X, Clock, Users, Plus, ChevronLeft, ChevronRight,
   Pencil, Trash2, Copy, Loader2, AlertTriangle, Table2, LayoutGrid, List,
+  UserCheck, UserX,
 } from 'lucide-react';
 import {
   Card, Badge, Button, Modal, Input, Select, Textarea,
@@ -210,6 +211,17 @@ export function AdminReservas() {
       setReservas(prev => prev.map(x => x.id === r.id ? { ...x, status: 'recusada' } : x));
       setSelected(null);
     } catch { alert('Erro ao recusar reserva.'); }
+    finally { setSalvandoRes(false); }
+  }
+
+  async function handlePresenca(r: Reserva, presente: boolean) {
+    setSalvandoRes(true);
+    try {
+      const novoStatus: Reserva['status'] = presente ? 'concluida' : 'no_show';
+      await updateReservaStatus(r.id, novoStatus, obsInterna);
+      setReservas(prev => prev.map(x => x.id === r.id ? { ...x, status: novoStatus } : x));
+      setSelected(null);
+    } catch { alert('Erro ao registrar presença.'); }
     finally { setSalvandoRes(false); }
   }
 
@@ -532,6 +544,24 @@ export function AdminReservas() {
                               <>
                                 <button onClick={e => { e.stopPropagation(); abrirReserva(r); }} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm" title="Confirmar"><Check size={14} /></button>
                                 <button onClick={e => { e.stopPropagation(); abrirReserva(r); }} className="p-1.5 text-charcoal-400 hover:text-red-500 hover:bg-red-50 rounded-sm" title="Recusar"><X size={14} /></button>
+                              </>
+                            )}
+                            {r.status === 'confirmada' && (
+                              <>
+                                <button
+                                  onClick={async e => { e.stopPropagation(); await updateReservaStatus(r.id, 'concluida'); setReservas(prev => prev.map(x => x.id === r.id ? { ...x, status: 'concluida' } : x)); }}
+                                  className="p-1.5 text-charcoal-400 hover:text-forest-600 hover:bg-forest-50 rounded-sm"
+                                  title="Marcar como presente"
+                                >
+                                  <UserCheck size={14} />
+                                </button>
+                                <button
+                                  onClick={async e => { e.stopPropagation(); await updateReservaStatus(r.id, 'no_show'); setReservas(prev => prev.map(x => x.id === r.id ? { ...x, status: 'no_show' } : x)); }}
+                                  className="p-1.5 text-charcoal-400 hover:text-red-500 hover:bg-red-50 rounded-sm"
+                                  title="Marcar como no-show"
+                                >
+                                  <UserX size={14} />
+                                </button>
                               </>
                             )}
                           </div>
@@ -938,10 +968,31 @@ export function AdminReservas() {
                   </>
                 )}
                 {selected.status === 'confirmada' && (
-                  <Button variant="secondary" size="sm" onClick={handleSalvarMesas} disabled={salvandoRes}>
-                    {salvandoRes ? <Loader2 size={13} className="animate-spin" /> : null}
-                    Salvar mesas
-                  </Button>
+                  <>
+                    <Button variant="secondary" size="sm" onClick={handleSalvarMesas} disabled={salvandoRes}>
+                      {salvandoRes ? <Loader2 size={13} className="animate-spin" /> : null}
+                      Salvar mesas
+                    </Button>
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className="text-xs text-charcoal-400">Presença:</span>
+                      <Button
+                        variant="primary" size="sm"
+                        onClick={() => handlePresenca(selected, true)}
+                        disabled={salvandoRes}
+                        className="bg-forest-500 hover:bg-forest-600"
+                      >
+                        {salvandoRes ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />}
+                        Presente
+                      </Button>
+                      <Button
+                        variant="danger" size="sm"
+                        onClick={() => handlePresenca(selected, false)}
+                        disabled={salvandoRes}
+                      >
+                        <UserX size={13} /> No-show
+                      </Button>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
