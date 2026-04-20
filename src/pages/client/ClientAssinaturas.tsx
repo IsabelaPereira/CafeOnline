@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Package, Check, ChevronDown, Coffee, MapPin } from 'lucide-react';
+import { Package, Check, ChevronDown, Coffee, MapPin, CreditCard } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, Badge, Button, Modal, Select, Alert } from '../../components/ui';
 import { useClienteAssinaturas, useClienteEnderecos } from '../../hooks/useCliente';
 import { usePlanos } from '../../hooks/useAssinaturas';
 import { trocarPlano, updateAssinaturaStatus } from '../../services/assinaturas.service';
 import { updateClientePreferencias } from '../../services/clientes.service';
+import { createCheckoutSession } from '../../services/stripe.service';
 import type { Assinatura } from '../../types';
 
 const STATUS_BADGE: Record<Assinatura['status'], React.ReactElement> = {
@@ -24,6 +25,33 @@ export function ClientAssinaturas() {
   // Which subscription's panels are open
   const [expandedHistorico, setExpandedHistorico] = useState<Record<string, boolean>>({});
   const [expandedCiclos,    setExpandedCiclos]    = useState<Record<string, boolean>>({});
+
+  // Pagamento pendente
+  const [pagandoId, setPagandoId] = useState<string | null>(null);
+
+  async function handlePagar(assinatura: Assinatura) {
+    setPagandoId(assinatura.id);
+    try {
+      const stripeCustomerId = (cliente as any)?.stripe_customer_id ?? undefined;
+      const { url } = await createCheckoutSession({
+        items: [{
+          name:   `Assinatura ${assinatura.plano.nome} — mensal`,
+          amount: assinatura.totalMensal,
+        }],
+        mode:          'subscription',
+        successPath:   `/sucesso?tipo=assinatura&id=${assinatura.id}`,
+        cancelPath:    `/cliente/assinaturas`,
+        metadata:      { assinatura_id: assinatura.id, cliente_id: assinatura.clienteId },
+        customerId:    stripeCustomerId,
+        customerEmail: cliente?.email ?? undefined,
+      });
+      window.location.href = url;
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Erro ao iniciar pagamento. Tente novamente.');
+    } finally {
+      setPagandoId(null);
+    }
+  }
 
   // Cancelar
   const [modalCancelar,    setModalCancelar]    = useState<string | null>(null); // assinatura.id
@@ -226,6 +254,17 @@ export function ClientAssinaturas() {
             </div>
 
             <div className="flex flex-wrap gap-3 border-t border-cream-200 pt-5">
+              {assinatura.status === 'pendente' && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={pagandoId === assinatura.id}
+                  onClick={() => handlePagar(assinatura)}
+                  icon={<CreditCard size={14} />}
+                >
+                  Realizar pagamento
+                </Button>
+              )}
               <Button variant="secondary" size="sm" onClick={() => abrirTrocarPlano(assinatura)}>
                 Trocar plano
               </Button>
