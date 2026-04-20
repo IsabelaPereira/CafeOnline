@@ -7,6 +7,7 @@ import {
 import { getAssinaturas, getPlanos, updatePlano, createPlano, manageAssinatura, updatePreferenciaAssinatura, criarPedidoManualAssinatura } from '../../services/assinaturas.service';
 import { getEdicoes } from '../../services/edicoes.service';
 import { getLeadByEmail, getLeadByClienteId, getHistoricoEtapaLead, updateLeadCheckout } from '../../services/leads.service';
+import { createCheckoutSession } from '../../services/stripe.service';
 import { supabase } from '../../lib/supabase';
 import type { Assinatura, PlanoAssinatura, EdicaoClube, Lead, LeadEtapa, HistoricoEtapaLead } from '../../types';
 
@@ -247,6 +248,29 @@ export function AdminAssinaturas() {
       .finally(() => setAssLeadLoading(false));
   }, [selected?.id]);
 
+  async function handleGerarLinkPagamento(assinatura: Assinatura) {
+    setReprocessando(assinatura.id);
+    try {
+      const { url } = await createCheckoutSession({
+        items: [{
+          name:   `Assinatura ${assinatura.plano.nome} — mensal`,
+          amount: assinatura.totalMensal,
+        }],
+        mode:          'subscription',
+        successPath:   `/sucesso?tipo=assinatura&id=${assinatura.id}`,
+        cancelPath:    `/cliente/assinaturas`,
+        metadata:      { assinatura_id: assinatura.id, cliente_id: assinatura.clienteId },
+        customerEmail: assinatura.clienteEmail ?? undefined,
+      });
+      setSelected(null);
+      setLinkPagamento(url);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Erro ao gerar link de pagamento.');
+    } finally {
+      setReprocessando(null);
+    }
+  }
+
   async function handleReprocessar(assinaturaId: string) {
     setReprocessando(assinaturaId);
     try {
@@ -266,6 +290,7 @@ export function AdminAssinaturas() {
       });
       const json = await res.json();
       if (json.url) {
+        setSelected(null);
         setLinkPagamento(json.url);
       } else {
         alert(`Erro ao gerar link: ${json.error ?? 'Erro desconhecido'}`);
@@ -589,6 +614,11 @@ export function AdminAssinaturas() {
                         <button onClick={e => { e.stopPropagation(); setSelected(assin); }} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors">
                           <Eye size={15} />
                         </button>
+                        {assin.status === 'pendente' && (
+                          <button onClick={e => { e.stopPropagation(); handleGerarLinkPagamento(assin); }} disabled={reprocessando === assin.id} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors disabled:opacity-50" title="Gerar link de pagamento">
+                            <CreditCard size={15} />
+                          </button>
+                        )}
                         {assin.status === 'inadimplente' && (
                           <button onClick={e => { e.stopPropagation(); handleReprocessar(assin.id); }} disabled={reprocessando === assin.id} className="p-1.5 text-charcoal-400 hover:text-orange-500 hover:bg-orange-50 rounded-sm transition-colors disabled:opacity-50" title="Reprocessar pagamento">
                             <RefreshCw size={15} className={reprocessando === assin.id ? 'animate-spin' : ''} />
@@ -1269,6 +1299,19 @@ export function AdminAssinaturas() {
                   icon={<Play size={13} />}
                 >
                   Retomar
+                </Button>
+              )}
+
+              {/* Gerar link de pagamento (pendente) */}
+              {selected.status === 'pendente' && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={reprocessando === selected.id}
+                  onClick={() => handleGerarLinkPagamento(selected)}
+                  icon={<CreditCard size={13} />}
+                >
+                  Gerar link de pagamento
                 </Button>
               )}
 
