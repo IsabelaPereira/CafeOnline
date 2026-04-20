@@ -64,7 +64,7 @@ function TopProgress({ current, skipped }: { current: FlowStep; skipped: Set<Flo
         <Link to="/" className="flex items-center gap-2.5 shrink-0">
           <img src="/logo-das-matas.png" alt="Das Matas" className="h-7 w-auto object-contain" />
           <span className="hidden sm:inline font-editorial text-lg text-charcoal-700 tracking-tight leading-none">
-            Das Matas
+            
           </span>
         </Link>
 
@@ -430,20 +430,17 @@ export function AssinarPage() {
   const [planoId, setPlanoId] = useState(planoInicial);
 
   // ── Auth / identity ────────────────────────────────────────────────────────
-  const [email,         setEmail]         = useState('');
-  const [emailChecking, setEmailChecking] = useState(false);
-  const [emailExists,   setEmailExists]   = useState(false);
-  const [senha,         setSenha]         = useState('');
-  const [senhaVisivel,  setSenhaVisivel]  = useState(false);
-  const [userId,        setUserId]        = useState<string | null>(null);
+  const [email,        setEmail]        = useState('');
+  const [senha,        setSenha]        = useState('');
+  const [senhaVisivel, setSenhaVisivel] = useState(false);
+  const [userId,       setUserId]       = useState<string | null>(null);
   const [clienteId,     setClienteId]     = useState<string | null>(null);
   const [leadId,        setLeadId]        = useState<string | null>(null);
   const [isNewUser,     setIsNewUser]     = useState(true);
   const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
 
   // ── Dados (step 3) ─────────────────────────────────────────────────────────
-  const [dados, setDados] = useState({ nome: '', celular: '', cpf: '', senhaNovo: '', confirmarSenha: '' });
-  const [senhaNovVisivel, setSenhaNovVisivel] = useState(false);
+  const [dados, setDados] = useState({ nome: '', celular: '', cpf: '' });
 
   // ── Preferências (step 4) ──────────────────────────────────────────────────
   const [preferencias, setPreferencias] = useState<{ tipo: 'grao' | 'moido'; moagem: string }>({
@@ -523,13 +520,12 @@ export function AssinarPage() {
     const nomeOk = dados.nome.trim().length > 0;
     const celularOk = celularDigits.length >= 10;
     const cpfOk = cpfDigits.length === 11 && isCpfValid(dados.cpf);
-    const senhaOk = !isNewUser || (dados.senhaNovo.length >= 8 && dados.senhaNovo === dados.confirmarSenha);
-    if (nomeOk && celularOk && cpfOk && senhaOk) {
+    if (nomeOk && celularOk && cpfOk) {
       dadosAutoAdvancedRef.current = true;
       handleDados();
     }
 
-  }, [step, dados, isNewUser, loading]);
+  }, [step, dados, loading]);
 
   // ── Auto-focus CEP ao entrar na etapa de endereço (formulário novo) ───────
   useEffect(() => {
@@ -547,7 +543,6 @@ export function AssinarPage() {
     if (email && email !== user.email) return;
     setUserId(user.id);
     setEmail(user.email);
-    setEmailExists(true);
     setIsNewUser(false);
 
     // Só pré-preenche o nome se for um nome real (não o username auto-gerado do e-mail)
@@ -681,115 +676,113 @@ export function AssinarPage() {
     setStep('email');
   };
 
-  // EMAIL: verificar se e-mail existe
-  const handleVerificarEmail = async () => {
+  // EMAIL: autenticar ou cadastrar (único handler)
+  const handleEmail = async () => {
     setErrors({});
+
     if (!email.trim()) { err('email', 'Informe seu e-mail para continuar.'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       err('email', 'Este não parece um e-mail válido. Verifique e tente novamente.'); return;
     }
+    if (!senha) { err('senha', 'Informe sua senha para continuar.'); return; }
+    if (senha.length < 8) { err('senha', 'A senha deve ter ao menos 8 caracteres.'); return; }
 
-    setEmailChecking(true);
-    const tempPass = crypto.randomUUID();
+    setLoading(true);
+    const emailNorm = email.trim().toLowerCase();
+
+    // 1. Tenta cadastrar — se der certo, e-mail é novo
     const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
-      password: tempPass,
+      email: emailNorm,
+      password: senha,
       options: { data: { name: email.split('@')[0] } },
     });
-    setEmailChecking(false);
 
     const jaExiste =
       signUpErr?.code === 'user_already_exists' ||
       signUpErr?.message?.toLowerCase().includes('already registered') ||
       signUpErr?.message?.toLowerCase().includes('already been registered');
 
+    // ── E-mail já existe → valida senha via login ────────────────────────
     if (jaExiste) {
-      setEmailExists(true);
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+        email: emailNorm, password: senha,
+      });
+
+      if (loginError || !loginData.user) {
+        err('senha', 'Senha incorreta. Verifique e tente novamente, ou use "Esqueci minha senha".');
+        setLoading(false);
+        return;
+      }
+
+      // Login OK — carrega dados e avança
+      const theUserId = loginData.user.id;
+      setUserId(theUserId);
       setIsNewUser(false);
-      // Lead será criado/atualizado em handleLogin (após autenticação)
+
+      await salvarLead('checkout_plano', {
+        tags:        ['clicou-na-assinatura', 'potencial-assinante'],
+        observacoes: 'Iniciou checkout com conta existente.',
+      });
+
+      const { data: profileRow } = await supabase.from('profiles').select('name').eq('id', theUserId).single();
+      const emailUsername = emailNorm.split('@')[0];
+      const nomePerfil = (profileRow?.name && profileRow.name.toLowerCase() !== emailUsername)
+        ? profileRow.name
+        : '';
+      if (nomePerfil) setDados(d => ({ ...d, nome: nomePerfil }));
+
+      const cliente = await getClienteByUserId(theUserId).catch(() => null);
+      if (cliente) {
+        setClienteId(cliente.id);
+        setStripeCustomerId((cliente as any).stripe_customer_id ?? null);
+        setDados(d => ({ ...d, nome: nomePerfil, celular: cliente.phone ?? '', cpf: cliente.cpf ?? '' }));
+        if (cliente.preferenciaCafe) {
+          setPreferencias({ tipo: cliente.preferenciaCafe, moagem: cliente.tipoMoagem ?? 'medio' });
+        }
+        if (cliente.enderecos?.length > 0) {
+          setEnderecosSalvos(cliente.enderecos);
+          const padrao = cliente.enderecos.find(e => e.padrao) ?? cliente.enderecos[0];
+          selecionarEnderecoSalvo(padrao, cliente.enderecos);
+        }
+        const temDados = !!(nomePerfil && cliente.phone);
+        if (temDados) {
+          skipTo('preferencias', new Set<FlowStep>(['dados']));
+          setLoading(false);
+          return;
+        }
+      }
+      setErrors({});
+      setLoading(false);
+      setStep('dados');
       return;
     }
+
+    // ── Outro erro no signUp (rate limit, etc.) ──────────────────────────
     if (signUpErr) {
       err('email', signUpErr.message?.toLowerCase().includes('rate')
         ? 'Muitas tentativas. Aguarde alguns segundos e tente novamente.'
         : signUpErr.message);
+      setLoading(false);
       return;
     }
 
-    // Novo usuário — reseta qualquer dado herdado de sessão anterior e avança
+    // ── E-mail novo — conta criada com a senha escolhida ─────────────────
     setUserId(signUpData.user?.id ?? null);
     setClienteId(null);
     setStripeCustomerId(null);
     setEnderecosSalvos([]);
     setEnderecoSelecionadoId(null);
-    setDados({ nome: '', celular: '', cpf: '', senhaNovo: '', confirmarSenha: '' });
+    setDados({ nome: '', celular: '', cpf: '' });
     setPreferencias({ tipo: 'grao', moagem: 'medio' });
     setIsNewUser(true);
+
     await salvarLead('checkout_plano', {
       tags:        ['clicou-na-assinatura', 'potencial-assinante'],
       observacoes: 'Iniciou checkout como novo usuário.',
     });
-    setErrors({});
-    setStep('dados');
-  };
 
-  // EMAIL: entrar com conta existente
-  const handleLogin = async () => {
     setErrors({});
-    if (!senha) { err('senha', 'Informe sua senha para continuar.'); return; }
-
-    setLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(), password: senha,
-    });
     setLoading(false);
-
-    if (error) {
-      err('senha', 'Senha incorreta. Verifique e tente novamente, ou use "Esqueci minha senha".');
-      return;
-    }
-
-    setUserId(data.user.id);
-    await salvarLead('checkout_plano', {
-      tags:        ['clicou-na-assinatura', 'potencial-assinante'],
-      observacoes: 'Iniciou checkout com conta existente.',
-    });
-
-    // Busca nome real da tabela profiles (user_metadata pode conter username auto-gerado)
-    const { data: profileRow } = await supabase.from('profiles').select('name').eq('id', data.user.id).single();
-    const emailUsername = email.split('@')[0].toLowerCase();
-    const nomePerfil = (profileRow?.name && profileRow.name.toLowerCase() !== emailUsername)
-      ? profileRow.name
-      : '';
-    if (nomePerfil) setDados(d => ({ ...d, nome: nomePerfil }));
-
-    const cliente = await getClienteByUserId(data.user.id).catch(() => null);
-    if (cliente) {
-      setClienteId(cliente.id);
-      setStripeCustomerId((cliente as any).stripe_customer_id ?? null);
-
-      // Pre-fill dados com informações salvas
-      setDados(d => ({ ...d, nome: nomePerfil, celular: cliente.phone ?? '', cpf: cliente.cpf ?? '' }));
-
-      // Pre-fill preferências
-      if (cliente.preferenciaCafe) {
-        setPreferencias({ tipo: cliente.preferenciaCafe, moagem: cliente.tipoMoagem ?? 'medio' });
-      }
-
-      // Carregar endereços salvos
-      if (cliente.enderecos?.length > 0) {
-        setEnderecosSalvos(cliente.enderecos);
-        const padrao = cliente.enderecos.find(e => e.padrao) ?? cliente.enderecos[0];
-        selecionarEnderecoSalvo(padrao, cliente.enderecos);
-      }
-
-      const temDados = !!(nomePerfil && cliente.phone);
-      if (temDados) {
-        skipTo('preferencias', new Set<FlowStep>(['dados']));
-        return;
-      }
-    }
-    setErrors({});
     setStep('dados');
   };
 
@@ -803,19 +796,11 @@ export function AssinarPage() {
     if (!dados.cpf.trim())     errs.cpf     = 'Informe seu CPF.';
     else if (!isCpfValid(dados.cpf)) errs.cpf = 'CPF inválido. Verifique os dígitos.';
 
-    if (isNewUser) {
-      if (!dados.senhaNovo)                errs.senhaNovo      = 'Crie uma senha para acessar sua conta.';
-      else if (dados.senhaNovo.length < 8) errs.senhaNovo      = 'A senha deve ter ao menos 8 caracteres.';
-      else if (dados.senhaNovo !== dados.confirmarSenha)
-                                           errs.confirmarSenha = 'As senhas não conferem. Verifique e tente novamente.';
-    }
-
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
     setLoading(true);
     setErrors({});
     try {
-      if (isNewUser && dados.senhaNovo) await supabase.auth.updateUser({ password: dados.senhaNovo });
       await supabase.from('profiles').update({ name: dados.nome.trim() }).eq('id', userId);
 
       let theClienteId = clienteId;
@@ -1211,53 +1196,43 @@ export function AssinarPage() {
             <div className="space-y-6">
               <StepHeading
                 eyebrow="Nº 02 · Contato"
-                title={emailExists ? 'Bem-vindo' : 'Qual é o seu'}
-                accent={emailExists ? 'de volta' : 'e-mail?'}
-                subtitle={
-                  emailExists
-                    ? 'Você já tem uma conta. Entre com sua senha para continuar.'
-                    : 'Usaremos para enviar as informações da sua assinatura.'
-                }
+                title="Acesse ou"
+                accent="crie sua conta"
+                subtitle="Usaremos para enviar as informações da sua assinatura."
               />
               <Input
                 label="E-mail"
                 type="email"
                 required
                 value={email}
-                onChange={e => { setEmail(e.target.value); setEmailExists(false); setSenha(''); setErrors({}); }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !emailExists && !emailChecking && !loading) {
-                    e.preventDefault();
-                    handleVerificarEmail();
-                  }
-                }}
+                onChange={e => { setEmail(e.target.value); setErrors({}); }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleEmail(); } }}
                 error={errors.email}
                 placeholder="seu@email.com"
-                disabled={emailChecking || loading}
+                disabled={loading}
               />
-              {emailExists && (
-                <div className="space-y-1">
-                  <div className="relative">
-                    <Input
-                      label="Senha"
-                      type={senhaVisivel ? 'text' : 'password'}
-                      required
-                      value={senha}
-                      onChange={e => setSenha(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                      error={errors.senha}
-                      placeholder="••••••••"
-                    />
-                    <button type="button" onClick={() => setSenhaVisivel(v => !v)}
-                      className="absolute right-3 top-9 text-charcoal-400 hover:text-charcoal-600">
-                      {senhaVisivel ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                  <Link to="/entrar" className="text-xs text-forest-600 hover:underline">
-                    Esqueci minha senha
-                  </Link>
+              <div className="space-y-1">
+                <div className="relative">
+                  <Input
+                    label="Senha"
+                    type={senhaVisivel ? 'text' : 'password'}
+                    required
+                    value={senha}
+                    onChange={e => { setSenha(e.target.value); setErrors(prev => { const { senha: _, ...rest } = prev; return rest; }); }}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleEmail(); } }}
+                    error={errors.senha}
+                    placeholder="••••••••"
+                    disabled={loading}
+                  />
+                  <button type="button" onClick={() => setSenhaVisivel(v => !v)}
+                    className="absolute right-3 top-9 text-charcoal-400 hover:text-charcoal-600">
+                    {senhaVisivel ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
-              )}
+                <Link to="/entrar" className="text-xs text-forest-600 hover:underline">
+                  Esqueci minha senha
+                </Link>
+              </div>
               <Alert type="info" message="Seus dados são protegidos e nunca compartilhados." />
             </div>
           )}
@@ -1283,29 +1258,6 @@ export function AssinarPage() {
                 error={errors.celular} placeholder="(11) 99999-9999"
                 inputMode="numeric" autoComplete="tel-national" maxLength={16}
               />
-              {isNewUser && (
-                <>
-                  <div className="relative">
-                    <Input label="Crie sua senha (mínimo 8 caracteres)"
-                      type={senhaNovVisivel ? 'text' : 'password'}
-                      required
-                      value={dados.senhaNovo}
-                      onChange={e => setDados(d => ({ ...d, senhaNovo: e.target.value }))}
-                      error={errors.senhaNovo} placeholder="••••••••"
-                    />
-                    <button type="button" onClick={() => setSenhaNovVisivel(v => !v)}
-                      className="absolute right-3 top-9 text-charcoal-400 hover:text-charcoal-600">
-                      {senhaNovVisivel ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                  <Input label="Confirmar senha"
-                    type="password" required
-                    value={dados.confirmarSenha}
-                    onChange={e => setDados(d => ({ ...d, confirmarSenha: e.target.value }))}
-                    error={errors.confirmarSenha} placeholder="••••••••"
-                  />
-                </>
-              )}
               <Input label="CPF" required
                 value={dados.cpf}
                 onChange={e => setDados(d => ({ ...d, cpf: formatCpf(e.target.value) }))}
@@ -1739,9 +1691,7 @@ export function AssinarPage() {
             ) : <div />}
 
             {step === 'email' && (
-              emailExists
-                ? <Button variant="primary" loading={loading}  onClick={handleLogin}>Entrar e continuar <ChevronRight size={16} /></Button>
-                : <Button variant="primary" loading={emailChecking} onClick={handleVerificarEmail}>Continuar <ChevronRight size={16} /></Button>
+              <Button variant="primary" loading={loading} onClick={handleEmail}>Continuar <ChevronRight size={16} /></Button>
             )}
             {step === 'dados'        && <Button variant="primary" loading={loading} onClick={handleDados}>Continuar <ChevronRight size={16} /></Button>}
             {step === 'preferencias' && <Button variant="primary" onClick={handlePreferencias}>Continuar <ChevronRight size={16} /></Button>}
