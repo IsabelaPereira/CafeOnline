@@ -194,3 +194,43 @@ export async function updatePedidoRastreio(id: string, codigoRastreio: string, s
   const { error } = await supabase.from('pedidos').update(patch).eq('id', id);
   if (error) throw error;
 }
+
+/** Substitui os itens de um pedido (adiciona/remove/altera) e recalcula subtotal/total. */
+export async function updatePedidoItens(
+  pedidoId: string,
+  itens: { id?: string; produtoId?: string; nomeProduto: string; skuProduto: string; quantidade: number; precoUnitario: number }[],
+  frete: number,
+  desconto: number,
+): Promise<Pedido> {
+  const { data: atuais, error: atuaisErr } = await supabase
+    .from('itens_pedido').select('id').eq('pedido_id', pedidoId);
+  if (atuaisErr) throw atuaisErr;
+
+  const idsAtuais    = new Set((atuais ?? []).map((r: { id: string }) => r.id));
+  const idsMantidos  = new Set(itens.filter(i => i.id).map(i => i.id as string));
+  const idsRemovidos = [...idsAtuais].filter(id => !idsMantidos.has(id));
+
+  if (idsRemovidos.length > 0) {
+    const { error: delErr } = await supabase.from('itens_pedido').delete().in('id', idsRemovidos);
+    if (delErr) throw delErr;
+  }
+
+  const linhas = itens.map(i => ({
+    ...(i.id ? { id: i.id } : {}),
+    pedido_id: pedidoId, produto_id: i.produtoId ?? null, nome_produto: i.nomeProduto,
+    sku_produto: i.skuProduto, quantidade: i.quantidade,
+    preco_unitario: i.precoUnitario, subtotal: i.quantidade * i.precoUnitario,
+  }));
+  const { error: upsertErr } = await supabase.from('itens_pedido').upsert(linhas);
+  if (upsertErr) throw upsertErr;
+
+  const subtotal = linhas.reduce((s, l) => s + l.subtotal, 0);
+  const total = Math.max(0, subtotal - desconto + frete);
+  const { error: pedErr } = await supabase.from('pedidos')
+    .update({ subtotal, frete, desconto, total }).eq('id', pedidoId);
+  if (pedErr) throw pedErr;
+
+  const pedido = await getPedido(pedidoId);
+  if (!pedido) throw new Error('Pedido não encontrado após atualização.');
+  return pedido;
+}
