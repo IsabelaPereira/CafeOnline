@@ -4,6 +4,7 @@ import { SEO } from '../../components/SEO';
 import { Input, Select, Textarea, Button, Alert } from '../../components/ui';
 import { createReserva, getDiasFechados, getMesas } from '../../services/reservas.service';
 import { getConfiguracoes } from '../../services/configuracoes.service';
+import { isEmailValido, isTelefoneValido, formatTelefone } from '../../utils/validation';
 import type { Configuracoes, DiaFechado, Mesa } from '../../types';
 
 type Step = 'form' | 'confirmado';
@@ -225,9 +226,11 @@ export function ReservasPage() {
 
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!form.nome)     errs.nome     = 'Nome é obrigatório';
-    if (!form.email)    errs.email    = 'E-mail é obrigatório';
+    if (!form.nome) errs.nome = 'Nome é obrigatório';
+    if (!form.email) errs.email = 'E-mail é obrigatório';
+    else if (!isEmailValido(form.email)) errs.email = 'E-mail inválido.';
     if (!form.telefone) errs.telefone = 'Telefone é obrigatório';
+    else if (!isTelefoneValido(form.telefone)) errs.telefone = 'Telefone inválido. Use o formato (11) 99999-9999.';
     if (!form.data) {
       errs.data = 'Data é obrigatória';
     } else if (diasFechadosSet.has(form.data)) {
@@ -462,9 +465,10 @@ export function ReservasPage() {
                       <Input
                         label="Telefone / WhatsApp *"
                         value={form.telefone}
-                        onChange={e => setForm({ ...form, telefone: e.target.value })}
+                        onChange={e => setForm({ ...form, telefone: formatTelefone(e.target.value) })}
                         error={errors.telefone}
                         placeholder="(11) 99999-9999"
+                        maxLength={15}
                       />
                       <Select
                         label="Quantidade de pessoas *"
