@@ -191,22 +191,26 @@ Deno.serve(async (req) => {
         // Atualiza o preço da Subscription no Stripe, se já houver uma ativa.
         // proration_behavior: 'none' — o novo valor vale a partir da próxima
         // cobrança, sem gerar cobrança/estorno parcial no ciclo atual.
-        // Usa product_data (produto novo e avulso) em vez de reaproveitar o
-        // product já associado ao item — igual ao create-checkout — pois o
-        // Stripe recusa criar um novo Price para um Product marcado inativo.
+        // items[].price_data do endpoint de Subscription só aceita "product"
+        // (um Product ID existente) — diferente do Checkout Session, que aceita
+        // "product_data" para criar um produto avulso na hora. Por isso cria-se
+        // o Product explicitamente aqui, em vez de reaproveitar o product já
+        // vinculado ao item (que pode estar marcado inativo no Stripe).
         if (stripeSubId) {
           const sub  = await stripe.subscriptions.retrieve(stripeSubId);
           const item = sub.items.data[0];
           if (!item) return json({ error: 'Item de cobrança não encontrado na assinatura Stripe.' }, 400);
 
+          const produto = await stripe.products.create({ name: plano.nome });
+
           await stripe.subscriptions.update(stripeSubId, {
             items: [{
               id: item.id,
               price_data: {
-                currency:     'brl',
-                product_data: { name: plano.nome },
-                unit_amount:  Math.round(novoTotal * 100),
-                recurring:    { interval: 'month' },
+                currency:    'brl',
+                product:     produto.id,
+                unit_amount: Math.round(novoTotal * 100),
+                recurring:   { interval: 'month' },
               },
             }],
             proration_behavior: 'none',
