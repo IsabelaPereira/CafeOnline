@@ -354,6 +354,40 @@ async function handleInvoicePaid(
     }).eq('id', assinaturaId);
   }
 
+  // Atualiza a etapa do lead vinculado, se ainda estiver em algum estágio
+  // pré-conversão (inclusive 'carrinho-abandonado') — garante que o lead saia
+  // do funil de checkout assim que o pagamento é confirmado, sem depender do
+  // cron de abandono (que só roda minutos depois). Best-effort: não deve
+  // quebrar o processamento do pagamento em caso de erro.
+  if (ass.cliente_id) {
+    try {
+      const ETAPAS_PRE_CONVERSAO = [
+        'novo', 'interesse_assinatura', 'checkout_plano', 'checkout_contato',
+        'checkout_preferencias', 'checkout_endereco', 'checkout_pagamento',
+        'checkout_iniciado', 'pagamento_iniciado', 'pagamento_invalido',
+        'pagamento_pendente', 'carrinho-abandonado',
+      ];
+      const { data: leadsAfetados } = await supabase
+        .from('leads')
+        .select('id, etapa')
+        .eq('cliente_id', ass.cliente_id)
+        .in('etapa', ETAPAS_PRE_CONVERSAO);
+
+      for (const lead of leadsAfetados ?? []) {
+        await supabase.from('leads').update({ etapa: 'assinatura_concluida' }).eq('id', lead.id);
+        await supabase.from('historico_etapa_lead').insert({
+          lead_id:        lead.id,
+          etapa_anterior: lead.etapa,
+          etapa_nova:     'assinatura_concluida',
+          alterado_por:   'stripe-webhook',
+          alterado_em:    new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      console.error('[invoice.paid] Erro ao atualizar etapa do lead:', e);
+    }
+  }
+
   console.log(`[invoice.paid] Concluído — pedido ${numero}, ciclo ${mes}/${ano}`);
 }
 

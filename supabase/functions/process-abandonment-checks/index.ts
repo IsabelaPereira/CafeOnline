@@ -5,7 +5,7 @@
 //
 //   1. Lê o status atual da assinatura vinculada.
 //   2. Se status = 'ativa' → aplica no lead:
-//        etapa           = 'carrinho-abandonado'
+//        etapa           = 'assinatura_concluida'
 //        tags            += 'CARRINHO-ABANDONADA'
 //        observacoes     = 'Cliente efetivou o pagamento da assinatura pelo site'
 //        proximo_follow_up = agora + 20 min
@@ -92,6 +92,7 @@ Deno.serve(async (req) => {
           : [];
         const novaTag = ativa ? 'CARRINHO-ABANDONADA' : 'carrinho-abandonado';
         const tagsMescladas = Array.from(new Set([...tagsAtuais, novaTag]));
+        const novaEtapa = ativa ? 'assinatura_concluida' : 'carrinho-abandonado';
 
         const now = new Date();
         const proximoFollowUp = new Date(now.getTime() + 20 * 60 * 1000).toISOString();
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
         const { error: updErr } = await supabase
           .from('leads')
           .update({
-            etapa:              'carrinho-abandonado',
+            etapa:              novaEtapa,
             tags:               tagsMescladas,
             observacoes,
             proximo_follow_up:  proximoFollowUp,
@@ -115,11 +116,11 @@ Deno.serve(async (req) => {
 
         // 5. Registra histórico de etapa, se mudou
         const etapaAnterior = (leadRow as LeadRow | null)?.etapa ?? null;
-        if (etapaAnterior !== 'carrinho-abandonado') {
+        if (etapaAnterior !== novaEtapa) {
           await supabase.from('historico_etapa_lead').insert({
             lead_id:        check.lead_id,
             etapa_anterior: etapaAnterior,
-            etapa_nova:     'carrinho-abandonado',
+            etapa_nova:     novaEtapa,
             alterado_por:   'cron',
             alterado_em:    now.toISOString(),
           });

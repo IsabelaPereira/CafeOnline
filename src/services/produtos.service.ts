@@ -71,7 +71,7 @@ export async function createProduto(p: Omit<Produto, 'id' | 'createdAt'>): Promi
     sku: p.sku, nome: p.nome, descricao: p.descricao, descricao_curta: p.descricaoCurta,
     preco: p.preco, preco_promocional: p.precoPromocional, estoque: p.estoque,
     estoque_minimo: p.estoqueMinimo, peso: p.peso, fotos: p.fotos, videos: p.videos ?? [],
-    categoria_id: p.categoriaId, categoria_ids: p.categoriaIds ?? [],
+    categoria_id: p.categoriaId || null, categoria_ids: p.categoriaIds ?? [],
     notas_sensoriais: p.notasSensoriais, regiao: p.regiao, produtor: p.produtor,
     variedade: p.variedade, processo: p.processo, altitude: p.altitude, torra: p.torra,
     ativo: p.ativo, destaque: p.destaque, produto_assinatura: p.produtoAssinatura,
@@ -93,7 +93,7 @@ export async function updateProduto(id: string, p: Partial<Omit<Produto, 'id' | 
   if (p.destaque !== undefined)        patch.destaque = p.destaque;
   if (p.produtoAssinatura !== undefined) patch.produto_assinatura = p.produtoAssinatura;
   if (p.notasSensoriais !== undefined) patch.notas_sensoriais = p.notasSensoriais;
-  if (p.categoriaId !== undefined)     patch.categoria_id = p.categoriaId;
+  if (p.categoriaId !== undefined)     patch.categoria_id = p.categoriaId || null;
   if (p.categoriaIds !== undefined)    patch.categoria_ids = p.categoriaIds;
   if (p.regiao !== undefined)          patch.regiao = p.regiao;
   if (p.produtor !== undefined)        patch.produtor = p.produtor;
@@ -141,7 +141,7 @@ export async function duplicarProduto(id: string): Promise<Produto> {
     preco: original.preco, preco_promocional: original.precoPromocional ?? null,
     estoque: 0, estoque_minimo: original.estoqueMinimo,
     peso: original.peso, fotos: original.fotos, videos: original.videos ?? [],
-    categoria_id: original.categoriaId, categoria_ids: original.categoriaIds ?? [],
+    categoria_id: original.categoriaId || null, categoria_ids: original.categoriaIds ?? [],
     notas_sensoriais: original.notasSensoriais,
     regiao: original.regiao ?? null, produtor: original.produtor ?? null,
     variedade: original.variedade ?? null, processo: original.processo ?? null,

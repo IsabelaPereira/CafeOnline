@@ -10,7 +10,7 @@ import {
   SectionHeader, SearchBar, FilterBar, StatCard, Tabs,
 } from '../../components/ui';
 import {
-  getProdutos, deleteProduto, updateProduto, updateEstoque,
+  getProdutos, createProduto, deleteProduto, updateProduto, updateEstoque,
   getVelocidadeVendas, getCategoriasProduto, duplicarProduto,
 } from '../../services/produtos.service';
 import { uploadProdutoMidia, deleteProdutoMidia, normalizeVideoUrl, videoType } from '../../services/storage.service';
@@ -373,7 +373,8 @@ export function AdminProdutos() {
               await updateProduto(selectedProd.id, patch);
               setProdutos(prev => prev.map(p => p.id === selectedProd.id ? { ...p, ...patch } : p));
             } else {
-              // criar — simplificado; em produção chamar createProduto
+              const novo = await createProduto({ notasSensoriais: [], ...patch } as Omit<Produto, 'id' | 'createdAt'>);
+              setProdutos(prev => [novo, ...prev]);
             }
             setModal(false);
           }}
