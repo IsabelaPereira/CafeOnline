@@ -1,15 +1,17 @@
 import { useEffect, useState, useRef } from 'react';
-import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus, Pause, Play, XCircle, RotateCcw, CreditCard, Calendar, SlidersHorizontal, Columns2, X, ChevronDown, Coffee, Package, TrendingUp, ArrowRight, Tag, Loader2, Mail, MessageSquare, Phone, FileText } from 'lucide-react';
+import { Eye, RefreshCw, AlertTriangle, Copy, ExternalLink, Plus, Pause, Play, XCircle, RotateCcw, CreditCard, Calendar, SlidersHorizontal, Columns2, X, ChevronDown, Coffee, Package, TrendingUp, ArrowRight, Tag, Loader2, Mail, MessageSquare, Phone, FileText, Truck } from 'lucide-react';
 import {
   Card, Badge, SearchBar, Pagination,
   Modal, Button, SectionHeader, StatCard, Tabs, Input
 } from '../../components/ui';
-import { getAssinaturas, getPlanos, updatePlano, createPlano, manageAssinatura, updatePreferenciaAssinatura, criarPedidoManualAssinatura } from '../../services/assinaturas.service';
+import { getAssinaturas, getPlanos, updatePlano, createPlano, manageAssinatura, updatePreferenciaAssinatura, criarPedidoManualAssinatura, alterarFormaEntregaAssinatura } from '../../services/assinaturas.service';
 import { getEdicoes } from '../../services/edicoes.service';
 import { getLeadByEmail, getLeadByClienteId, getHistoricoEtapaLead, updateLeadCheckout } from '../../services/leads.service';
 import { createCheckoutSession } from '../../services/stripe.service';
+import { calcularFrete, RETIRADA_OPCAO } from '../../services/frete.service';
 import { supabase } from '../../lib/supabase';
 import type { Assinatura, PlanoAssinatura, EdicaoClube, Lead, LeadEtapa, HistoricoEtapaLead } from '../../types';
+import type { FreteOpcao } from '../../services/frete.service';
 
 // ── Mapa de etapas (labels + cores) ──────────────────────────────────────────
 const ETAPAS_MAP: Record<string, { label: string; color: string }> = {
@@ -147,6 +149,13 @@ export function AdminAssinaturas() {
   const [editandoPreferencia, setEditandoPreferencia] = useState(false);
   const [formPreferencia, setFormPreferencia] = useState<{ preferenciaCafe: 'grao' | 'moido'; tipoMoagem: string }>({ preferenciaCafe: 'grao', tipoMoagem: '' });
   const [salvandoPreferencia, setSalvandoPreferencia] = useState(false);
+  // Forma de entrega
+  const [editandoEntrega, setEditandoEntrega]         = useState(false);
+  const [formEntrega, setFormEntrega]                 = useState<'entrega' | 'retirada'>('retirada');
+  const [freteOpcoesEntrega, setFreteOpcoesEntrega]   = useState<FreteOpcao[]>([]);
+  const [freteSelecionadoId, setFreteSelecionadoId]   = useState('');
+  const [calculandoFrete, setCalculandoFrete]         = useState(false);
+  const [salvandoEntrega, setSalvandoEntrega]         = useState(false);
   // Pedido manual
   const [criandoPedidoManual, setCriandoPedidoManual] = useState(false);
   const [edicoes, setEdicoes] = useState<EdicaoClube[]>([]);
@@ -368,6 +377,58 @@ export function AdminAssinaturas() {
       alert('Erro ao salvar preferência.');
     } finally {
       setSalvandoPreferencia(false);
+    }
+  }
+
+  function abrirEditarEntrega() {
+    if (!selected) return;
+    setFormEntrega(selected.formaEntrega);
+    if (selected.formaEntrega === 'retirada') {
+      setFreteOpcoesEntrega([RETIRADA_OPCAO]);
+      setFreteSelecionadoId('retirada');
+    } else {
+      setFreteOpcoesEntrega([]);
+      setFreteSelecionadoId('');
+    }
+    setEditandoEntrega(true);
+  }
+
+  async function handleCalcularFreteEntrega() {
+    if (!selected) return;
+    setCalculandoFrete(true);
+    try {
+      const opcoes = await calcularFrete(selected.endereco.cep);
+      setFreteOpcoesEntrega(opcoes);
+      if (opcoes.length > 0) setFreteSelecionadoId(opcoes[0].id);
+    } catch {
+      alert('Erro ao calcular frete. Confira o CEP do endereço da assinatura.');
+    } finally {
+      setCalculandoFrete(false);
+    }
+  }
+
+  async function handleSalvarFormaEntrega() {
+    if (!selected) return;
+    const freteEscolhido = formEntrega === 'retirada'
+      ? 0
+      : freteOpcoesEntrega.find(f => f.id === freteSelecionadoId)?.preco;
+    if (formEntrega === 'entrega' && freteEscolhido === undefined) {
+      alert('Calcule e selecione uma opção de frete antes de salvar.');
+      return;
+    }
+    setSalvandoEntrega(true);
+    try {
+      const result = await alterarFormaEntregaAssinatura(selected.id, formEntrega, freteEscolhido ?? 0);
+      if (result.error) { alert(result.error); return; }
+      const updated = await getAssinaturas();
+      setAssinaturas(updated);
+      const updatedSelected = updated.find(a => a.id === selected.id) ?? null;
+      setSelected(updatedSelected);
+      setEditandoEntrega(false);
+    } catch {
+      alert('Erro ao alterar forma de entrega.');
+    } finally {
+      setSalvandoEntrega(false);
     }
   }
 
@@ -1259,6 +1320,14 @@ export function AdminAssinaturas() {
               >
                 Alterar preferência
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={abrirEditarEntrega}
+                icon={<Truck size={13} />}
+              >
+                Alterar forma de entrega
+              </Button>
               {selected.status !== 'cancelada' && (
                 <Button
                   variant="secondary"
@@ -1428,6 +1497,91 @@ export function AdminAssinaturas() {
               onClick={handleSalvarPreferencia}
             >
               Salvar preferência
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal — Alterar Forma de Entrega ────────────────────────────────── */}
+      <Modal
+        open={editandoEntrega && !!selected}
+        onClose={() => setEditandoEntrega(false)}
+        title="Alterar Forma de Entrega"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-charcoal-600 mb-1.5">Forma de entrega</label>
+            <select
+              value={formEntrega}
+              onChange={e => {
+                const val = e.target.value as 'entrega' | 'retirada';
+                setFormEntrega(val);
+                if (val === 'retirada') {
+                  setFreteOpcoesEntrega([RETIRADA_OPCAO]);
+                  setFreteSelecionadoId('retirada');
+                } else {
+                  setFreteOpcoesEntrega([]);
+                  setFreteSelecionadoId('');
+                }
+              }}
+              className="w-full px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+            >
+              <option value="retirada">Retirada na loja</option>
+              <option value="entrega">Entrega no endereço</option>
+            </select>
+          </div>
+
+          {formEntrega === 'retirada' ? (
+            <p className="text-xs text-charcoal-400">O frete será removido (R$ 0,00) a partir da próxima cobrança.</p>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-charcoal-400">
+                  Endereço: {selected?.endereco.cidade}/{selected?.endereco.estado} — CEP {selected?.endereco.cep}
+                </p>
+                <Button variant="secondary" size="sm" loading={calculandoFrete} onClick={handleCalcularFreteEntrega}>
+                  Calcular frete
+                </Button>
+              </div>
+              {freteOpcoesEntrega.length > 0 && (
+                <div className="space-y-1.5">
+                  {freteOpcoesEntrega.map(op => (
+                    <label
+                      key={op.id}
+                      className={`flex items-center justify-between px-3 py-2 border rounded-sm text-sm cursor-pointer transition-colors ${
+                        freteSelecionadoId === op.id ? 'border-forest-400 bg-forest-50' : 'border-cream-200 hover:bg-cream-50'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="radio" name="freteOpcaoEntrega"
+                          checked={freteSelecionadoId === op.id}
+                          onChange={() => setFreteSelecionadoId(op.id)}
+                          className="accent-forest-500"
+                        />
+                        {op.nome} <span className="text-charcoal-400">({op.empresa})</span>
+                      </span>
+                      <span className="font-medium text-charcoal-700">R$ {op.preco.toFixed(2)}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-charcoal-400 bg-cream-50 rounded-sm p-2.5">
+            A mudança de valor vale a partir da próxima cobrança — não gera cobrança nem estorno no ciclo atual.
+          </p>
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+            <Button variant="ghost" onClick={() => setEditandoEntrega(false)}>Cancelar</Button>
+            <Button
+              variant="primary"
+              loading={salvandoEntrega}
+              icon={<Truck size={14} />}
+              onClick={handleSalvarFormaEntrega}
+            >
+              Salvar
             </Button>
           </div>
         </div>
