@@ -19,6 +19,19 @@ const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inacti
   cancelado: 'cancelled', reembolsado: 'inactive',
 };
 
+/** Mensagem de retirada varia por status — só instrui o cliente a ir buscar
+ *  quando o pedido REALMENTE está disponível na loja (não antes). */
+function mensagemRetirada(status: Pedido['status']): string {
+  switch (status) {
+    case 'retirado':
+      return 'Pedido retirado na loja Das Matas.';
+    case 'disponivel_retirada':
+      return 'Disponível para retirada — Loja Das Matas, R. Bernardo Monteiro, 150, Loja 1, Centro, Contagem/MG.';
+    default:
+      return 'Retirada na loja — seu pedido está sendo preparado. Avisaremos quando estiver disponível.';
+  }
+}
+
 export function ClientPedidos() {
   const { user } = useAuth();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -91,9 +104,7 @@ export function ClientPedidos() {
                 {pedido.formaEntrega === 'retirada' ? (
                   <div className="flex items-center gap-2 mb-4 p-3 bg-earth-50 rounded-sm text-sm">
                     <Package size={14} className="text-earth-500 shrink-0" />
-                    <span className="text-earth-700">
-                      {pedido.status === 'retirado' ? 'Retirado na loja' : 'Retire na loja Das Matas'}
-                    </span>
+                    <span className="text-earth-700">{mensagemRetirada(pedido.status)}</span>
                   </div>
                 ) : pedido.codigoRastreio && (
                   <div className="flex items-center gap-2 mb-4 p-3 bg-blue-50 rounded-sm text-sm">
@@ -179,11 +190,7 @@ export function ClientPedidos() {
               {selected.formaEntrega === 'retirada' ? (
                 <div className="flex items-center gap-2 p-3 bg-earth-50 rounded-sm text-sm text-earth-700">
                   <Package size={16} className="shrink-0" />
-                  <span>
-                    {selected.status === 'retirado'
-                      ? 'Pedido retirado na loja Das Matas.'
-                      : 'Retire na loja Das Matas — R. Bernardo Monteiro, 150, Loja 1, Centro, Contagem/MG.'}
-                  </span>
+                  <span>{mensagemRetirada(selected.status)}</span>
                 </div>
               ) : (
                 <>
