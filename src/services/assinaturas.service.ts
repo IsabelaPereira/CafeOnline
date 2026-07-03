@@ -54,14 +54,14 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
   };
 }
 
-// Select para listagem admin — ciclos sem join aninhado a pedidos (evita falha PostgREST)
+// Select para listagem admin
 const LIST_SELECT = [
   '*',
   'plano:planos(*)',
   'endereco:enderecos(*)',
   'cobrancas:cobrancas_assinatura(*)',
   'alteracoes:alteracoes_assinatura(*)',
-  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id, edicao:edicoes_clube(id, titulo))',
+  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id, edicao:edicoes_clube(id, titulo), pedido:pedidos!pedido_id(id, numero, status))',
 ].join(', ');
 
 // Select completo — para detalhe individual; usa hint explícito para o join pedido
@@ -310,7 +310,7 @@ export async function criarPedidoManualAssinatura(
 
   if (pedErr || !pedido) throw new Error(`Erro ao criar pedido: ${pedErr?.message}`);
 
-  await supabase.from('itens_pedido').insert({
+  const { error: itemErr } = await supabase.from('itens_pedido').insert({
     pedido_id:      pedido.id,
     produto_id:     null,
     nome_produto:   `Clube Das Matas — Edição ${mes}/${ano}`,
@@ -319,6 +319,7 @@ export async function criarPedidoManualAssinatura(
     preco_unitario: valor,
     subtotal:       valor,
   });
+  if (itemErr) throw new Error(`Erro ao criar item do pedido: ${itemErr.message}`);
 
   if (ciclo?.id) {
     await supabase.from('ciclos_assinatura')
