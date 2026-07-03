@@ -861,6 +861,7 @@ export function CheckoutPage() {
         desconto,
         total: totalFinal,
         enderecoEntrega,
+        formaEntrega: freteOpcaoId === 'retirada' ? 'retirada' : 'entrega',
         formaPagamento: metodo === 'cartao' ? 'Cartão de crédito' : metodo === 'pix' ? 'PIX' : 'Boleto bancário',
         cupom: cupomAplicado || undefined,
       });

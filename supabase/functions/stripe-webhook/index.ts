@@ -235,7 +235,7 @@ async function handleInvoicePaid(
   // Dados da assinatura + endereço
   const { data: ass, error: assErr } = await supabase
     .from('assinaturas')
-    .select('id, cliente_id, frete, total_mensal, endereco_id, stripe_subscription_id')
+    .select('id, cliente_id, frete, forma_entrega, total_mensal, endereco_id, stripe_subscription_id')
     .eq('id', assinaturaId)
     .single();
   if (assErr || !ass) {
@@ -295,6 +295,7 @@ async function handleInvoicePaid(
     desconto:         0,
     total:            valor,
     status:           'pago',
+    forma_entrega:    ass.forma_entrega ?? 'entrega',
     endereco_entrega: enderecoJson,
     forma_pagamento:  'Stripe — Assinatura',
     tipo:             'assinatura',

@@ -51,6 +51,7 @@ function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedid
     })),
     subtotal: r.subtotal, frete: r.frete, desconto: r.desconto, total: r.total,
     status: r.status as Pedido['status'],
+    formaEntrega: (r.forma_entrega ?? 'entrega') as Pedido['formaEntrega'],
     enderecoEntrega: mapEndereco(r.endereco_entrega as Record<string, string>),
     formaPagamento: r.forma_pagamento ?? '', cupom: r.cupom ?? undefined,
     codigoRastreio: r.codigo_rastreio ?? undefined, observacoes: r.observacoes ?? undefined,
@@ -65,7 +66,7 @@ function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedid
 
 // Sem '*' e sem joins aninhados — evita bug do Supabase JS de stripping e erros de join
 const PEDIDO_SELECT = [
-  'status, id, numero, cliente_id, subtotal, frete, desconto, total',
+  'status, id, numero, cliente_id, subtotal, frete, desconto, total, forma_entrega',
   'endereco_entrega, forma_pagamento, cupom, codigo_rastreio, observacoes',
   'tipo, assinatura_id, ciclo_id, melhorenvio_cart_id, etiqueta_url, created_at, updated_at',
   'itens:itens_pedido(id, produto_id, nome_produto, sku_produto, quantidade, preco_unitario, subtotal)',
@@ -95,6 +96,7 @@ export async function createPedido(pedido: {
   subtotal: number; frete: number; desconto: number; total: number;
   enderecoEntrega: Endereco; formaPagamento: string; cupom?: string;
   status?: Pedido['status'];
+  formaEntrega?: Pedido['formaEntrega'];
   observacoes?: string;
 }): Promise<Pedido> {
   const numero = `DM-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
@@ -102,6 +104,7 @@ export async function createPedido(pedido: {
     numero, cliente_id: pedido.clienteId ?? null,
     subtotal: pedido.subtotal, frete: pedido.frete, desconto: pedido.desconto, total: pedido.total,
     status: pedido.status ?? 'pendente',
+    forma_entrega: pedido.formaEntrega ?? 'entrega',
     endereco_entrega: pedido.enderecoEntrega,
     forma_pagamento: pedido.formaPagamento, cupom: pedido.cupom ?? null,
     observacoes: pedido.observacoes ?? null,

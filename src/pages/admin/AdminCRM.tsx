@@ -2688,7 +2688,9 @@ export function AdminCRM() {
           const pedidoStatusColor: Record<string, string> = {
             pendente: 'bg-gray-100 text-gray-600', pago: 'bg-blue-100 text-blue-700',
             em_preparo: 'bg-orange-100 text-orange-700', enviado: 'bg-purple-100 text-purple-700',
-            entregue: 'bg-forest-100 text-forest-700', cancelado: 'bg-red-100 text-red-700',
+            entregue: 'bg-forest-100 text-forest-700',
+            disponivel_retirada: 'bg-orange-100 text-orange-700', retirado: 'bg-forest-100 text-forest-700',
+            cancelado: 'bg-red-100 text-red-700',
             reembolsado: 'bg-yellow-100 text-yellow-700',
           };
           const assStatusColor: Record<string, string> = {

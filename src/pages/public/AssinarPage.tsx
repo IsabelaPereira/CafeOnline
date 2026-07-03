@@ -987,6 +987,7 @@ export function AssinarPage() {
           tipo_moagem:      preferencias.tipo === 'moido' ? preferencias.moagem : null,
           endereco_id:      enderecoId,
           frete:            freteSelecionado.preco,
+          forma_entrega:    freteSelecionado.id === 'retirada' ? 'retirada' : 'entrega',
           total_mensal:     totalMensal,
           proxima_cobranca: proxStr,
           proximo_envio:    proxStr,
