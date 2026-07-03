@@ -7,14 +7,18 @@ import type { Pedido, Assinatura } from '../../types';
 
 const statusLabel: Record<string, string> = {
   pendente: 'Pendente', pago: 'Pago', em_separacao: 'Em separação',
-  enviado: 'Enviado', entregue: 'Entregue', cancelado: 'Cancelado',
+  enviado: 'Enviado', entregue: 'Entregue',
+  disponivel_retirada: 'Disponível para retirada', retirado: 'Retirado',
+  cancelado: 'Cancelado',
 };
 const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
   pendente: 'pending', pago: 'pending', em_separacao: 'pending',
-  enviado: 'gold', entregue: 'active', cancelado: 'cancelled',
+  enviado: 'gold', entregue: 'active',
+  disponivel_retirada: 'gold', retirado: 'active',
+  cancelado: 'cancelled',
 };
 
-type FiltroStatus = 'todos' | 'pago' | 'em_separacao' | 'enviado' | 'entregue';
+type FiltroStatus = 'todos' | 'pago' | 'em_separacao' | 'enviado' | 'entregue' | 'retirada';
 
 export function AdminLogistica() {
   const [pedidosState, setPedidosState] = useState<Pedido[]>([]);
@@ -33,7 +37,11 @@ export function AdminLogistica() {
   }, []);
 
   const filtrados = pedidosState.filter(p => {
-    if (filtro !== 'todos' && p.status !== filtro) return false;
+    if (filtro === 'retirada') {
+      if (p.formaEntrega !== 'retirada' || p.status !== 'disponivel_retirada') return false;
+    } else if (filtro !== 'todos' && p.status !== filtro) {
+      return false;
+    }
     if (busca && !p.numero.toLowerCase().includes(busca.toLowerCase()) &&
         !p.cliente?.name.toLowerCase().includes(busca.toLowerCase())) return false;
     return true;
@@ -44,6 +52,7 @@ export function AdminLogistica() {
     { label: 'Aguardando separação', count: pedidosState.filter(p => p.status === 'pago' || p.status === 'em_separacao').length, icon: <Package size={20} />, color: 'text-yellow-600 bg-yellow-50' },
     { label: 'Em trânsito', count: pedidosState.filter(p => p.status === 'enviado').length, icon: <Truck size={20} />, color: 'text-blue-600 bg-blue-50' },
     { label: 'Entregues (mês)', count: pedidosState.filter(p => p.status === 'entregue').length, icon: <CheckCircle size={20} />, color: 'text-forest-600 bg-forest-50' },
+    { label: 'Retiradas pendentes', count: pedidosState.filter(p => p.formaEntrega === 'retirada' && p.status === 'disponivel_retirada').length, icon: <Package size={20} />, color: 'text-earth-600 bg-earth-50' },
     { label: 'Pendentes clube', count: assinaturas.flatMap(a => a.ciclos).filter(c => c.status === 'pendente').length, icon: <Clock size={20} />, color: 'text-earth-600 bg-earth-50' },
   ];
 
@@ -90,7 +99,7 @@ export function AdminLogistica() {
       {sucesso && <Alert type="success" message={sucesso} />}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {stats.map(s => (
           <Card key={s.label} className="flex items-center gap-4">
             <div className={`p-3 rounded-sm shrink-0 ${s.color}`}>{s.icon}</div>
@@ -115,13 +124,13 @@ export function AdminLogistica() {
                 onChange={e => setBusca(e.target.value)}
               />
             </div>
-            {(['todos', 'pago', 'em_separacao', 'enviado', 'entregue'] as FiltroStatus[]).map(f => (
+            {(['todos', 'pago', 'em_separacao', 'enviado', 'entregue', 'retirada'] as FiltroStatus[]).map(f => (
               <button
                 key={f}
                 onClick={() => setFiltro(f)}
                 className={`px-3 py-1.5 text-xs rounded-sm transition-colors ${filtro === f ? 'bg-charcoal-700 text-cream-100' : 'border border-cream-200 text-charcoal-500 hover:bg-cream-50'}`}
               >
-                {f === 'todos' ? 'Todos' : statusLabel[f]}
+                {f === 'todos' ? 'Todos' : f === 'retirada' ? 'Retiradas' : statusLabel[f]}
               </button>
             ))}
           </div>
@@ -154,8 +163,14 @@ export function AdminLogistica() {
                   </td>
                   <td className="px-5 py-4 text-sm text-charcoal-600">{p.cliente?.name ?? '—'}</td>
                   <td className="px-5 py-4">
-                    <p className="text-sm text-charcoal-600">{p.enderecoEntrega.cidade}/{p.enderecoEntrega.estado}</p>
-                    <p className="text-xs text-charcoal-400">CEP {p.enderecoEntrega.cep}</p>
+                    {p.formaEntrega === 'retirada' ? (
+                      <p className="text-sm font-medium text-earth-600">Retirada na loja</p>
+                    ) : (
+                      <>
+                        <p className="text-sm text-charcoal-600">{p.enderecoEntrega.cidade}/{p.enderecoEntrega.estado}</p>
+                        <p className="text-xs text-charcoal-400">CEP {p.enderecoEntrega.cep}</p>
+                      </>
+                    )}
                   </td>
                   <td className="px-5 py-4">
                     <Badge variant={statusVariant[p.status] ?? 'inactive'}>{statusLabel[p.status]}</Badge>

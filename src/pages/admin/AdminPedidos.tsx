@@ -15,12 +15,17 @@ const statusOptions = [
   { value: 'em_separacao', label: 'Em separação' },
   { value: 'enviado', label: 'Enviado' },
   { value: 'entregue', label: 'Entregue' },
+  { value: 'disponivel_retirada', label: 'Disponível para retirada' },
+  { value: 'retirado', label: 'Retirado' },
   { value: 'cancelado', label: 'Cancelado' },
+  { value: 'reembolsado', label: 'Reembolsado' },
 ];
 
 const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
   pendente: 'pending', pago: 'pending', em_separacao: 'gold',
-  enviado: 'gold', entregue: 'active', cancelado: 'cancelled', reembolsado: 'inactive',
+  enviado: 'gold', entregue: 'active',
+  disponivel_retirada: 'gold', retirado: 'active',
+  cancelado: 'cancelled', reembolsado: 'inactive',
 };
 
 type ItemForm = { id: string; nome: string; sku: string; quantidade: string; precoUnitario: string };
@@ -303,7 +308,9 @@ export function AdminPedidos() {
                     <Badge variant={statusVariant[p.status] ?? 'inactive'}>{p.status}</Badge>
                   </td>
                   <td className="table-td">
-                    {p.etiquetaUrl ? (
+                    {p.formaEntrega === 'retirada' ? (
+                      <span className="text-xs text-earth-600 font-medium">Retirada na loja</span>
+                    ) : p.etiquetaUrl ? (
                       <a href={p.etiquetaUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="flex items-center gap-1 text-xs text-forest-600 hover:text-forest-700 font-medium">
                         <Tag size={12} /> Etiqueta
                       </a>
@@ -616,8 +623,8 @@ export function AdminPedidos() {
               </div>
             )}
 
-            {/* Etiqueta MelhorEnvio */}
-            {selected.status !== 'cancelado' && selected.status !== 'reembolsado' && (
+            {/* Etiqueta MelhorEnvio — não se aplica a pedidos de retirada */}
+            {selected.formaEntrega !== 'retirada' && selected.status !== 'cancelado' && selected.status !== 'reembolsado' && (
               <div>
                 <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Etiqueta de envio</p>
 
@@ -696,8 +703,8 @@ export function AdminPedidos() {
               </div>
             )}
 
-            {/* Rastreio manual */}
-            {!selected.etiquetaUrl && selected.status !== 'cancelado' && selected.status !== 'entregue' && (
+            {/* Rastreio manual — não se aplica a pedidos de retirada */}
+            {selected.formaEntrega !== 'retirada' && !selected.etiquetaUrl && selected.status !== 'cancelado' && selected.status !== 'entregue' && (
               <div>
                 <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Código de rastreio manual</p>
                 <div className="flex gap-2">
@@ -724,12 +731,32 @@ export function AdminPedidos() {
                   <Check size={14} /> Em separação
                 </Button>
               )}
-              {selected.status === 'em_separacao' && (
+              {selected.status === 'em_separacao' && selected.formaEntrega === 'retirada' && (
+                <Button variant="primary" size="sm" onClick={async () => {
+                  await updatePedidoStatus(selected.id, 'disponivel_retirada');
+                  const u = { ...selected, status: 'disponivel_retirada' as Pedido['status'] };
+                  setPedidos(prev => prev.map(p => p.id === selected.id ? u : p));
+                  setSelected(u);
+                }} icon={<Tag size={14} />}>
+                  Marcar disponível para retirada
+                </Button>
+              )}
+              {selected.status === 'em_separacao' && selected.formaEntrega !== 'retirada' && (
                 <Button variant="primary" size="sm" onClick={handleSalvarRastreio} loading={salvandoRastreio} icon={<Truck size={14} />}>
                   Marcar como enviado
                 </Button>
               )}
-              {selected.status !== 'cancelado' && selected.status !== 'entregue' && selected.status !== 'reembolsado' && (
+              {selected.status === 'disponivel_retirada' && (
+                <Button variant="primary" size="sm" onClick={async () => {
+                  await updatePedidoStatus(selected.id, 'retirado');
+                  const u = { ...selected, status: 'retirado' as Pedido['status'] };
+                  setPedidos(prev => prev.map(p => p.id === selected.id ? u : p));
+                  setSelected(u);
+                }} icon={<Check size={14} />}>
+                  Marcar como retirado
+                </Button>
+              )}
+              {selected.status !== 'cancelado' && selected.status !== 'entregue' && selected.status !== 'retirado' && selected.status !== 'reembolsado' && (
                 <Button variant="danger" size="sm" onClick={handleCancelarPedido} icon={<X size={14} />}>
                   Cancelar pedido
                 </Button>

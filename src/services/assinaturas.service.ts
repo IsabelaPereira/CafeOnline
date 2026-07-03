@@ -22,7 +22,7 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
     tipoMoagem: r.tipo_moagem ?? undefined,
     enderecoId: r.endereco_id ?? '',
     endereco: mapEndereco(r.endereco),
-    frete: r.frete, totalMensal: r.total_mensal,
+    frete: r.frete, formaEntrega: (r.forma_entrega ?? 'entrega') as Assinatura['formaEntrega'], totalMensal: r.total_mensal,
     proximaCobranca: r.proxima_cobranca ?? '', proximoEnvio: r.proximo_envio ?? '',
     dataInicio: r.data_inicio, dataFim: r.data_fim ?? undefined,
     motivoCancelamento: r.motivo_cancelamento ?? undefined,
@@ -79,7 +79,7 @@ const BASE_SELECT = [
 // cobrancas INSERT: liberado pela policy "cobrancas_insert_proprio" (migration 010)
 const CLIENT_SELECT = [
   'status, id, cliente_id, plano_id, preferencia_cafe, tipo_moagem',
-  'endereco_id, frete, total_mensal, proxima_cobranca, proximo_envio',
+  'endereco_id, frete, forma_entrega, total_mensal, proxima_cobranca, proximo_envio',
   'data_inicio, data_fim, motivo_cancelamento, stripe_subscription_id, stripe_price_id, created_at, cancelamento_agendado, data_cancelamento_agendado',
   'plano:planos(id, nome, descricao, preco, beneficios, destaque, ativo, ordem, stripe_price_id)',
   'endereco:enderecos(id, apelido, cep, logradouro, numero, complemento, bairro, cidade, estado, padrao)',
@@ -266,7 +266,7 @@ export async function criarPedidoManualAssinatura(
 ): Promise<string> {
   const { data: ass, error: assErr } = await supabase
     .from('assinaturas')
-    .select('id, cliente_id, frete, total_mensal, endereco_id')
+    .select('id, cliente_id, frete, forma_entrega, total_mensal, endereco_id')
     .eq('id', assinaturaId)
     .single();
   if (assErr || !ass) throw new Error('Assinatura não encontrada');
@@ -301,6 +301,7 @@ export async function criarPedidoManualAssinatura(
     desconto:         0,
     total:            valor,
     status:           'pago',
+    forma_entrega:    ass.forma_entrega ?? 'entrega',
     endereco_entrega: enderecoJson,
     forma_pagamento:  'Stripe — Assinatura',
     tipo:             'assinatura',
