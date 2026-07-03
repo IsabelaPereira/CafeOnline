@@ -54,7 +54,8 @@ function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedid
     formaEntrega: (r.forma_entrega ?? 'entrega') as Pedido['formaEntrega'],
     enderecoEntrega: mapEndereco(r.endereco_entrega as Record<string, string>),
     formaPagamento: r.forma_pagamento ?? '', cupom: r.cupom ?? undefined,
-    codigoRastreio: r.codigo_rastreio ?? undefined, observacoes: r.observacoes ?? undefined,
+    codigoRastreio: r.codigo_rastreio ?? undefined, retiradoPor: r.retirado_por ?? undefined,
+    observacoes: r.observacoes ?? undefined,
     tipo: (r.tipo ?? 'loja') as 'loja' | 'assinatura',
     assinaturaId:       r.assinatura_id ?? undefined,
     cicloId:            r.ciclo_id ?? undefined,
@@ -67,7 +68,7 @@ function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedid
 // Sem '*' e sem joins aninhados — evita bug do Supabase JS de stripping e erros de join
 const PEDIDO_SELECT = [
   'status, id, numero, cliente_id, subtotal, frete, desconto, total, forma_entrega',
-  'endereco_entrega, forma_pagamento, cupom, codigo_rastreio, observacoes',
+  'endereco_entrega, forma_pagamento, cupom, codigo_rastreio, retirado_por, observacoes',
   'tipo, assinatura_id, ciclo_id, melhorenvio_cart_id, etiqueta_url, created_at, updated_at',
   'itens:itens_pedido(id, produto_id, nome_produto, sku_produto, quantidade, preco_unitario, subtotal)',
 ].join(', ');
@@ -124,6 +125,15 @@ export async function createPedido(pedido: {
 
 export async function updatePedidoStatus(id: string, status: Pedido['status']): Promise<void> {
   const { error } = await supabase.from('pedidos').update({ status }).eq('id', id);
+  if (error) throw error;
+}
+
+/** Marca o pedido como retirado, registrando quem de fato retirou na loja
+ *  (pode não ser o titular da conta — ex.: um familiar buscando por ele). */
+export async function marcarComoRetirado(id: string, retiradoPor: string): Promise<void> {
+  const { error } = await supabase.from('pedidos')
+    .update({ status: 'retirado', retirado_por: retiradoPor })
+    .eq('id', id);
   if (error) throw error;
 }
 
@@ -233,4 +243,72 @@ export async function updatePedidoItens(
   const pedido = await getPedido(pedidoId);
   if (!pedido) throw new Error('Pedido não encontrado após atualização.');
   return pedido;
+}
+
+// ── Histórico (auditoria) ───────────────────────────────────────────────────
+
+export interface PedidoAuditLog {
+  id: string;
+  /** 'pedidos' = alteração no próprio pedido; 'itens_pedido' = item adicionado/removido/alterado. */
+  tabela: 'pedidos' | 'itens_pedido';
+  usuarioId: string | null;
+  usuarioNome: string | null;
+  usuarioEmail: string | null;
+  operacao: 'INSERT' | 'UPDATE' | 'DELETE';
+  dadosAntes: Record<string, unknown> | null;
+  dadosDepois: Record<string, unknown> | null;
+  criadoEm: string;
+}
+
+interface AuditLogRow {
+  id: string;
+  usuario_id: string | null;
+  usuario_nome: string | null;
+  usuario_email: string | null;
+  operacao: 'INSERT' | 'UPDATE' | 'DELETE';
+  dados_antes: Record<string, unknown> | null;
+  dados_depois: Record<string, unknown> | null;
+  criado_em: string;
+}
+
+function mapAuditRow(r: AuditLogRow, tabela: 'pedidos' | 'itens_pedido'): PedidoAuditLog {
+  return {
+    id: r.id, tabela,
+    usuarioId: r.usuario_id ?? null,
+    usuarioNome: r.usuario_nome ?? null,
+    usuarioEmail: r.usuario_email ?? null,
+    operacao: r.operacao,
+    dadosAntes: r.dados_antes,
+    dadosDepois: r.dados_depois,
+    criadoEm: r.criado_em,
+  };
+}
+
+/** Histórico completo do pedido (criação, mudanças de status, edições) e,
+ *  quando possível, dos itens vinculados a ele — em ordem cronológica. */
+export async function getPedidoHistorico(pedidoId: string): Promise<PedidoAuditLog[]> {
+  const { data: pedidoData, error: pedidoErr } = await supabase
+    .from('audit_logs').select('*')
+    .eq('tabela', 'pedidos').eq('registro_id', pedidoId)
+    .order('criado_em', { ascending: true });
+  if (pedidoErr) throw pedidoErr;
+
+  // Correlação com itens_pedido é best-effort (filtro em campo JSONB) — não
+  // deve derrubar o histórico principal do pedido se falhar.
+  let itemRows: AuditLogRow[] = [];
+  try {
+    const { data: itemData, error: itemErr } = await supabase
+      .from('audit_logs').select('*')
+      .eq('tabela', 'itens_pedido')
+      .or(`dados_antes->>pedido_id.eq.${pedidoId},dados_depois->>pedido_id.eq.${pedidoId}`)
+      .order('criado_em', { ascending: true });
+    if (!itemErr && itemData) itemRows = itemData as AuditLogRow[];
+  } catch { /* correlação de itens é best-effort */ }
+
+  const combinados = [
+    ...((pedidoData ?? []) as AuditLogRow[]).map(r => mapAuditRow(r, 'pedidos')),
+    ...itemRows.map(r => mapAuditRow(r, 'itens_pedido')),
+  ];
+  combinados.sort((a, b) => a.criadoEm.localeCompare(b.criadoEm));
+  return combinados;
 }
