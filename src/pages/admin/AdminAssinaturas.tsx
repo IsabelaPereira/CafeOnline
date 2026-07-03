@@ -157,6 +157,7 @@ export function AdminAssinaturas() {
   const [freteSelecionadoId, setFreteSelecionadoId]   = useState('');
   const [calculandoFrete, setCalculandoFrete]         = useState(false);
   const [salvandoEntrega, setSalvandoEntrega]         = useState(false);
+  const [confirmandoEntrega, setConfirmandoEntrega]   = useState(false);
   // Pedido manual
   const [criandoPedidoManual, setCriandoPedidoManual] = useState(false);
   const [edicoes, setEdicoes] = useState<EdicaoClube[]>([]);
@@ -391,6 +392,7 @@ export function AdminAssinaturas() {
       setFreteOpcoesEntrega([]);
       setFreteSelecionadoId('');
     }
+    setConfirmandoEntrega(false);
     setEditandoEntrega(true);
   }
 
@@ -406,6 +408,18 @@ export function AdminAssinaturas() {
     } finally {
       setCalculandoFrete(false);
     }
+  }
+
+  function handlePedirConfirmacaoEntrega() {
+    if (!selected) return;
+    const freteEscolhido = formEntrega === 'retirada'
+      ? 0
+      : freteOpcoesEntrega.find(f => f.id === freteSelecionadoId)?.preco;
+    if (formEntrega === 'entrega' && freteEscolhido === undefined) {
+      alert('Calcule e selecione uma opção de frete antes de salvar.');
+      return;
+    }
+    setConfirmandoEntrega(true);
   }
 
   async function handleSalvarFormaEntrega() {
@@ -426,6 +440,7 @@ export function AdminAssinaturas() {
       const updatedSelected = updated.find(a => a.id === selected.id) ?? null;
       setSelected(updatedSelected);
       setEditandoEntrega(false);
+      setConfirmandoEntrega(false);
     } catch {
       alert('Erro ao alterar forma de entrega.');
     } finally {
@@ -1501,9 +1516,56 @@ export function AdminAssinaturas() {
       {/* ── Modal — Alterar Forma de Entrega ────────────────────────────────── */}
       <Modal
         open={editandoEntrega && !!selected}
-        onClose={() => setEditandoEntrega(false)}
-        title="Alterar Forma de Entrega"
+        onClose={() => { setEditandoEntrega(false); setConfirmandoEntrega(false); }}
+        title={confirmandoEntrega ? 'Confirmar Alteração' : 'Alterar Forma de Entrega'}
       >
+        {confirmandoEntrega ? (
+          (() => {
+            const freteEscolhido = formEntrega === 'retirada'
+              ? 0
+              : freteOpcoesEntrega.find(f => f.id === freteSelecionadoId)?.preco ?? 0;
+            const novoTotal = (selected?.plano.preco ?? 0) + freteEscolhido;
+            return (
+              <div className="space-y-4">
+                <p className="text-sm text-charcoal-600">
+                  {formEntrega === 'retirada'
+                    ? 'A assinatura passará a ser retirada na loja, sem cobrança de frete.'
+                    : 'A assinatura passará a ser entregue no endereço cadastrado.'}
+                </p>
+                <div className="bg-cream-50 rounded-sm p-3 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-charcoal-400">Forma de entrega</span>
+                    <span className="font-medium text-charcoal-700">
+                      {formEntrega === 'retirada' ? 'Retirada na loja' : 'Entrega no endereço'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-charcoal-400">Frete</span>
+                    <span className="font-medium text-charcoal-700">R$ {freteEscolhido.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm pt-1.5 border-t border-cream-200">
+                    <span className="text-charcoal-500">Novo valor mensal</span>
+                    <span className="font-semibold text-forest-600">R$ {novoTotal.toFixed(2)}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-charcoal-400 bg-cream-50 rounded-sm p-2.5">
+                  A mudança vale a partir da próxima cobrança — não gera cobrança nem estorno no ciclo atual.
+                </p>
+                <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
+                  <Button variant="ghost" onClick={() => setConfirmandoEntrega(false)}>Voltar</Button>
+                  <Button
+                    variant="primary"
+                    loading={salvandoEntrega}
+                    icon={<Truck size={14} />}
+                    onClick={handleSalvarFormaEntrega}
+                  >
+                    Confirmar alteração
+                  </Button>
+                </div>
+              </div>
+            );
+          })()
+        ) : (
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-charcoal-600 mb-1.5">Forma de entrega</label>
@@ -1573,14 +1635,14 @@ export function AdminAssinaturas() {
             <Button variant="ghost" onClick={() => setEditandoEntrega(false)}>Cancelar</Button>
             <Button
               variant="primary"
-              loading={salvandoEntrega}
               icon={<Truck size={14} />}
-              onClick={handleSalvarFormaEntrega}
+              onClick={handlePedirConfirmacaoEntrega}
             >
               Salvar
             </Button>
           </div>
         </div>
+        )}
       </Modal>
 
       {/* ── Modal — Gerar Pedido Manual ─────────────────────────────────────── */}
