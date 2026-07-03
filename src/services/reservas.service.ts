@@ -192,6 +192,51 @@ export async function deleteDiaFechado(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// ── Histórico (auditoria) ───────────────────────────────────────────────────────
+
+export interface ReservaAuditLog {
+  id: string;
+  usuarioId: string | null;
+  usuarioNome: string | null;
+  usuarioEmail: string | null;
+  operacao: 'INSERT' | 'UPDATE' | 'DELETE';
+  dadosAntes: Record<string, unknown> | null;
+  dadosDepois: Record<string, unknown> | null;
+  criadoEm: string;
+}
+
+interface AuditLogRow {
+  id: string;
+  usuario_id: string | null;
+  usuario_nome: string | null;
+  usuario_email: string | null;
+  operacao: 'INSERT' | 'UPDATE' | 'DELETE';
+  dados_antes: Record<string, unknown> | null;
+  dados_depois: Record<string, unknown> | null;
+  criado_em: string;
+}
+
+/** Retorna o histórico completo (criação, aprovação, alocação, edições, etc.) de uma reserva, em ordem cronológica. */
+export async function getReservaHistorico(reservaId: string): Promise<ReservaAuditLog[]> {
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('*')
+    .eq('tabela', 'reservas')
+    .eq('registro_id', reservaId)
+    .order('criado_em', { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as AuditLogRow[]).map(r => ({
+    id: r.id,
+    usuarioId: r.usuario_id ?? null,
+    usuarioNome: r.usuario_nome ?? null,
+    usuarioEmail: r.usuario_email ?? null,
+    operacao: r.operacao,
+    dadosAntes: r.dados_antes,
+    dadosDepois: r.dados_depois,
+    criadoEm: r.criado_em,
+  }));
+}
+
 // ── Alocação automática de mesas ──────────────────────────────────────────────
 
 /**
