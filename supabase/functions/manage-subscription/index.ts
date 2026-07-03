@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
         }
 
         const { data: plano, error: planoErr } = await supabase
-          .from('planos').select('preco').eq('id', ass.plano_id).single();
+          .from('planos').select('nome, preco').eq('id', ass.plano_id).single();
         if (planoErr || !plano) return json({ error: 'Plano da assinatura não encontrado.' }, 404);
 
         const novoTotal = plano.preco + freteNum;
@@ -191,6 +191,9 @@ Deno.serve(async (req) => {
         // Atualiza o preço da Subscription no Stripe, se já houver uma ativa.
         // proration_behavior: 'none' — o novo valor vale a partir da próxima
         // cobrança, sem gerar cobrança/estorno parcial no ciclo atual.
+        // Usa product_data (produto novo e avulso) em vez de reaproveitar o
+        // product já associado ao item — igual ao create-checkout — pois o
+        // Stripe recusa criar um novo Price para um Product marcado inativo.
         if (stripeSubId) {
           const sub  = await stripe.subscriptions.retrieve(stripeSubId);
           const item = sub.items.data[0];
@@ -200,10 +203,10 @@ Deno.serve(async (req) => {
             items: [{
               id: item.id,
               price_data: {
-                currency:    'brl',
-                product:     item.price.product as string,
-                unit_amount: Math.round(novoTotal * 100),
-                recurring:   { interval: 'month' },
+                currency:     'brl',
+                product_data: { name: plano.nome },
+                unit_amount:  Math.round(novoTotal * 100),
+                recurring:    { interval: 'month' },
               },
             }],
             proration_behavior: 'none',
