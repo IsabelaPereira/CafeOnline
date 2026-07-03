@@ -10,7 +10,8 @@ import { getLeadByEmail, getLeadByClienteId, getHistoricoEtapaLead, updateLeadCh
 import { createCheckoutSession } from '../../services/stripe.service';
 import { calcularFrete, RETIRADA_OPCAO } from '../../services/frete.service';
 import { supabase } from '../../lib/supabase';
-import type { Assinatura, PlanoAssinatura, EdicaoClube, Lead, LeadEtapa, HistoricoEtapaLead } from '../../types';
+import { PEDIDO_STATUS_LABEL, PEDIDO_STATUS_VARIANT, CICLO_STATUS_LABEL, CICLO_STATUS_CLASS } from '../../constants/pedidoStatus';
+import type { Assinatura, PlanoAssinatura, EdicaoClube, Lead, LeadEtapa, HistoricoEtapaLead, StatusPedido } from '../../types';
 import type { FreteOpcao } from '../../services/frete.service';
 
 // ── Mapa de etapas (labels + cores) ──────────────────────────────────────────
@@ -1211,19 +1212,12 @@ export function AdminAssinaturas() {
             {/* Ciclos / Edições e pedidos */}
             {selected.ciclos.length > 0 && (
               <div>
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Edições e pedidos</p>
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-1">Edições e pedidos</p>
+                <p className="text-[11px] text-charcoal-400 mb-3">
+                  O status mostrado é o do pedido gerado para o ciclo (é a informação que realmente se mantém atualizada — envio, retirada, etc.).
+                </p>
                 <div className="space-y-2">
                   {selected.ciclos.map(ciclo => {
-                    const cicloStatusVariant: Record<string, string> = {
-                      pendente: 'bg-amber-50 text-amber-700 border-amber-200',
-                      enviado:  'bg-blue-50 text-blue-700 border-blue-200',
-                      entregue: 'bg-forest-50 text-forest-700 border-forest-200',
-                    };
-                    const pedidoStatusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
-                      pago: 'pending', em_separacao: 'gold', enviado: 'gold',
-                      entregue: 'active', disponivel_retirada: 'gold', retirado: 'active',
-                      cancelado: 'cancelled', reembolsado: 'inactive',
-                    };
                     return (
                       <div key={ciclo.id} className="flex flex-wrap items-start gap-3 py-2.5 border-b border-cream-100 last:border-0">
                         {/* Período */}
@@ -1231,9 +1225,6 @@ export function AdminAssinaturas() {
                           <p className="text-sm font-medium text-charcoal-700">
                             {String(ciclo.mes).padStart(2, '0')}/{ciclo.ano}
                           </p>
-                          <span className={`mt-0.5 inline-block px-1.5 py-0.5 text-xs rounded border ${cicloStatusVariant[ciclo.status] ?? ''}`}>
-                            {ciclo.status}
-                          </span>
                         </div>
 
                         {/* Edição */}
@@ -1248,17 +1239,22 @@ export function AdminAssinaturas() {
                           )}
                         </div>
 
-                        {/* Pedido */}
+                        {/* Pedido + status (fonte única: o próprio pedido, quando existir) */}
                         <div className="text-right shrink-0">
                           {ciclo.pedido ? (
                             <>
                               <p className="text-xs font-medium text-charcoal-600">{ciclo.pedido.numero}</p>
-                              <Badge variant={pedidoStatusVariant[ciclo.pedido.status] ?? 'inactive'}>
-                                {ciclo.pedido.status}
+                              <Badge variant={PEDIDO_STATUS_VARIANT[ciclo.pedido.status as StatusPedido] ?? 'inactive'}>
+                                {PEDIDO_STATUS_LABEL[ciclo.pedido.status as StatusPedido] ?? ciclo.pedido.status}
                               </Badge>
                             </>
                           ) : (
-                            <span className="text-xs text-charcoal-300">Sem pedido</span>
+                            <>
+                              <span className="text-xs text-charcoal-300">Sem pedido</span>
+                              <span className={`mt-1 block px-1.5 py-0.5 text-xs rounded border ${CICLO_STATUS_CLASS[ciclo.status] ?? ''}`}>
+                                {CICLO_STATUS_LABEL[ciclo.status] ?? ciclo.status}
+                              </span>
+                            </>
                           )}
                         </div>
                       </div>

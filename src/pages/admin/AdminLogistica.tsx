@@ -1,22 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Truck, Package, Search, ExternalLink, Edit2, CheckCircle, Clock, AlertTriangle, BarChart2 } from 'lucide-react';
-import { Card, Badge, Button, Input, Modal, Alert } from '../../components/ui';
-import { getPedidos, updatePedidoRastreio } from '../../services/pedidos.service';
+import { useEffect, useState } from 'react';
+import { Truck, Package, Search, ExternalLink, Eye, CheckCircle, Clock } from 'lucide-react';
+import { Card, Badge, Input } from '../../components/ui';
+import { PedidoDetalheModal } from '../../components/admin/PedidoDetalheModal';
+import { getPedidos } from '../../services/pedidos.service';
 import { getAssinaturas } from '../../services/assinaturas.service';
+import { PEDIDO_STATUS_LABEL, PEDIDO_STATUS_VARIANT } from '../../constants/pedidoStatus';
 import type { Pedido, Assinatura } from '../../types';
-
-const statusLabel: Record<string, string> = {
-  pendente: 'Pendente', pago: 'Pago', em_separacao: 'Em separação',
-  enviado: 'Enviado', entregue: 'Entregue',
-  disponivel_retirada: 'Disponível para retirada', retirado: 'Retirado',
-  cancelado: 'Cancelado',
-};
-const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
-  pendente: 'pending', pago: 'pending', em_separacao: 'pending',
-  enviado: 'gold', entregue: 'active',
-  disponivel_retirada: 'gold', retirado: 'active',
-  cancelado: 'cancelled',
-};
 
 type FiltroStatus = 'todos' | 'pago' | 'em_separacao' | 'enviado' | 'entregue' | 'retirada';
 
@@ -25,16 +14,14 @@ export function AdminLogistica() {
   const [assinaturas, setAssinaturas] = useState<Assinatura[]>([]);
   const [filtro, setFiltro] = useState<FiltroStatus>('todos');
   const [busca, setBusca] = useState('');
-  const [pedidoSel, setPedidoSel] = useState<Pedido | null>(null);
-  const [novoRastreio, setNovoRastreio] = useState('');
-  const [novoStatus, setNovoStatus] = useState('');
-  const [salvando, setSalvando] = useState(false);
-  const [sucesso, setSucesso] = useState('');
+  const [pedidoDetalheId, setPedidoDetalheId] = useState<string | null>(null);
 
   useEffect(() => {
     getPedidos().then(setPedidosState).catch(console.error);
     getAssinaturas().then(setAssinaturas).catch(console.error);
   }, []);
+
+  const pedidoDetalhe = pedidosState.find(p => p.id === pedidoDetalheId) ?? null;
 
   const filtrados = pedidosState.filter(p => {
     if (filtro === 'retirada') {
@@ -56,28 +43,6 @@ export function AdminLogistica() {
     { label: 'Pendentes clube', count: assinaturas.flatMap(a => a.ciclos).filter(c => c.status === 'pendente').length, icon: <Clock size={20} />, color: 'text-earth-600 bg-earth-50' },
   ];
 
-  function abrirEditar(pedido: Pedido) {
-    setPedidoSel(pedido);
-    setNovoRastreio(pedido.codigoRastreio ?? '');
-    setNovoStatus(pedido.status);
-  }
-
-  async function handleSalvarRastreio() {
-    if (!pedidoSel) return;
-    setSalvando(true);
-    await updatePedidoRastreio(pedidoSel.id, novoRastreio, novoStatus as Pedido['status']).catch(console.error);
-    setPedidosState(prev =>
-      prev.map(p => p.id === pedidoSel.id
-        ? { ...p, status: novoStatus as Pedido['status'], codigoRastreio: novoRastreio || undefined }
-        : p
-      )
-    );
-    setSalvando(false);
-    setPedidoSel(null);
-    setSucesso(`Pedido ${pedidoSel.numero} atualizado.`);
-    setTimeout(() => setSucesso(''), 4000);
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -95,8 +60,6 @@ export function AdminLogistica() {
           Melhor Envio
         </a>
       </div>
-
-      {sucesso && <Alert type="success" message={sucesso} />}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -130,7 +93,7 @@ export function AdminLogistica() {
                 onClick={() => setFiltro(f)}
                 className={`px-3 py-1.5 text-xs rounded-sm transition-colors ${filtro === f ? 'bg-charcoal-700 text-cream-100' : 'border border-cream-200 text-charcoal-500 hover:bg-cream-50'}`}
               >
-                {f === 'todos' ? 'Todos' : f === 'retirada' ? 'Retiradas' : statusLabel[f]}
+                {f === 'todos' ? 'Todos' : f === 'retirada' ? 'Retiradas' : PEDIDO_STATUS_LABEL[f]}
               </button>
             ))}
           </div>
@@ -156,7 +119,7 @@ export function AdminLogistica() {
                   </td>
                 </tr>
               ) : filtrados.map(p => (
-                <tr key={p.id} className="border-b border-cream-50 hover:bg-cream-50 transition-colors">
+                <tr key={p.id} className="border-b border-cream-50 hover:bg-cream-50 transition-colors cursor-pointer" onClick={() => setPedidoDetalheId(p.id)}>
                   <td className="px-5 py-4">
                     <p className="text-sm font-medium text-charcoal-700">{p.numero}</p>
                     <p className="text-xs text-charcoal-400">{new Date(p.createdAt).toLocaleDateString('pt-BR')}</p>
@@ -173,7 +136,7 @@ export function AdminLogistica() {
                     )}
                   </td>
                   <td className="px-5 py-4">
-                    <Badge variant={statusVariant[p.status] ?? 'inactive'}>{statusLabel[p.status]}</Badge>
+                    <Badge variant={PEDIDO_STATUS_VARIANT[p.status] ?? 'inactive'}>{PEDIDO_STATUS_LABEL[p.status] ?? p.status}</Badge>
                   </td>
                   <td className="px-5 py-4">
                     {p.codigoRastreio
@@ -182,10 +145,10 @@ export function AdminLogistica() {
                   </td>
                   <td className="px-5 py-4">
                     <button
-                      onClick={() => abrirEditar(p)}
-                      className="flex items-center gap-1.5 text-xs text-forest-500 hover:text-forest-600"
+                      onClick={e => { e.stopPropagation(); setPedidoDetalheId(p.id); }}
+                      className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors"
                     >
-                      <Edit2 size={13} /> Editar
+                      <Eye size={15} />
                     </button>
                   </td>
                 </tr>
@@ -229,35 +192,11 @@ export function AdminLogistica() {
         </div>
       </Card>
 
-      {/* Modal editar rastreio */}
-      <Modal open={!!pedidoSel} onClose={() => setPedidoSel(null)} title={`Atualizar — ${pedidoSel?.numero}`}>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-charcoal-500 uppercase tracking-wider mb-1.5">Status</label>
-            <select
-              value={novoStatus}
-              onChange={e => setNovoStatus(e.target.value)}
-              className="w-full border border-cream-200 rounded-sm px-3 py-2.5 text-sm text-charcoal-700 focus:outline-none focus:ring-2 focus:ring-forest-400"
-            >
-              {Object.entries(statusLabel).map(([val, label]) => (
-                <option key={val} value={val}>{label}</option>
-              ))}
-            </select>
-          </div>
-          <Input
-            label="Código de rastreio"
-            value={novoRastreio}
-            onChange={e => setNovoRastreio(e.target.value.toUpperCase())}
-            placeholder="BR000000000BR"
-          />
-          <div className="flex justify-end gap-3 pt-2 border-t border-cream-100">
-            <Button variant="ghost" onClick={() => setPedidoSel(null)}>Cancelar</Button>
-            <Button variant="primary" loading={salvando} onClick={handleSalvarRastreio}>
-              Salvar alterações
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <PedidoDetalheModal
+        pedido={pedidoDetalhe}
+        onClose={() => setPedidoDetalheId(null)}
+        onUpdated={u => setPedidosState(prev => prev.map(p => p.id === u.id ? u : p))}
+      />
     </div>
   );
 }

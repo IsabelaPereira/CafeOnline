@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, Package, Truck, Check, X, Plus, Trash2, Search, Tag, ExternalLink, AlertCircle, RefreshCw, Link2, Pencil } from 'lucide-react';
+import { Eye, Package, Plus, Trash2, Search, Tag } from 'lucide-react';
 import {
   Card, Badge, SearchBar, FilterBar, Select, Pagination,
   Modal, Button, SectionHeader, Input,
 } from '../../components/ui';
-import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, updatePedidoItens, buscarClientePorEmail, gerarEtiqueta, cancelarEtiqueta, limparEtiquetaLocal } from '../../services/pedidos.service';
-import { getAssinatura } from '../../services/assinaturas.service';
-import type { Pedido, Endereco, Assinatura } from '../../types';
+import { PedidoDetalheModal } from '../../components/admin/PedidoDetalheModal';
+import { getPedidos, createPedido, buscarClientePorEmail } from '../../services/pedidos.service';
+import { PEDIDO_STATUS_LABEL, PEDIDO_STATUS_VARIANT } from '../../constants/pedidoStatus';
+import type { Pedido, Endereco } from '../../types';
 
 const statusOptions = [
   { value: '', label: 'Todos os status' },
@@ -21,20 +22,10 @@ const statusOptions = [
   { value: 'reembolsado', label: 'Reembolsado' },
 ];
 
-const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
-  pendente: 'pending', pago: 'pending', em_separacao: 'gold',
-  enviado: 'gold', entregue: 'active',
-  disponivel_retirada: 'gold', retirado: 'active',
-  cancelado: 'cancelled', reembolsado: 'inactive',
-};
-
 type ItemForm = { id: string; nome: string; sku: string; quantidade: string; precoUnitario: string };
 type EnderecoForm = { cep: string; logradouro: string; numero: string; complemento: string; bairro: string; cidade: string; estado: string };
-// itemId: id real em itens_pedido (undefined = item novo, ainda não salvo)
-type EditItemForm = { key: string; itemId?: string; nome: string; sku: string; quantidade: string; precoUnitario: string };
 
 const emptyItem = (): ItemForm => ({ id: crypto.randomUUID(), nome: '', sku: '', quantidade: '1', precoUnitario: '' });
-const emptyEditItem = (): EditItemForm => ({ key: crypto.randomUUID(), nome: '', sku: '', quantidade: '1', precoUnitario: '' });
 const emptyEndereco = (): EnderecoForm => ({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '' });
 
 export function AdminPedidos() {
@@ -42,23 +33,8 @@ export function AdminPedidos() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<Pedido | null>(null);
-  const [assDetalhe, setAssDetalhe] = useState<Assinatura | null>(null);
-  const [carregandoAss, setCarregandoAss] = useState(false);
-  const [rastreio, setRastreio] = useState('');
-  const [salvandoRastreio, setSalvandoRastreio] = useState(false);
-  const [gerandoEtiqueta, setGerandoEtiqueta] = useState(false);
-  const [cancelandoEtiqueta, setCancelandoEtiqueta] = useState(false);
-  const [limpandoEtiqueta, setLimpandoEtiqueta] = useState(false);
-  const [erroEtiqueta, setErroEtiqueta] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const perPage = 10;
-
-  // ── Editar itens do pedido ────────────────────────────────────────────────
-  const [editandoItens, setEditandoItens] = useState(false);
-  const [itensEdit, setItensEdit]         = useState<EditItemForm[]>([]);
-  const [freteEdit, setFreteEdit]         = useState('0');
-  const [descontoEdit, setDescontoEdit]   = useState('0');
-  const [salvandoItens, setSalvandoItens] = useState(false);
 
   // ── Novo pedido ─────────────────────────────────────────────────────────────
   const [criandoPedido, setCriandoPedido] = useState(false);
@@ -79,67 +55,7 @@ export function AdminPedidos() {
     getPedidos().then(setPedidos).catch(console.error);
   }, []);
 
-  async function abrirPedido(p: Pedido) {
-    setSelected(p);
-    setRastreio(p.codigoRastreio ?? '');
-    setErroEtiqueta('');
-    setAssDetalhe(null);
-    setEditandoItens(false);
-    if (p.assinaturaId) {
-      setCarregandoAss(true);
-      try {
-        const ass = await getAssinatura(p.assinaturaId);
-        setAssDetalhe(ass);
-      } catch { /* silencia */ }
-      finally { setCarregandoAss(false); }
-    }
-  }
-
-  function abrirEditarItens() {
-    if (!selected) return;
-    setItensEdit(selected.itens.map(i => ({
-      key: crypto.randomUUID(), itemId: i.id,
-      nome: i.produto.nome, sku: i.produto.sku,
-      quantidade: String(i.quantidade), precoUnitario: String(i.precoUnitario),
-    })));
-    setFreteEdit(String(selected.frete));
-    setDescontoEdit(String(selected.desconto));
-    setEditandoItens(true);
-  }
-
-  function atualizarItemEdit(key: string, patch: Partial<EditItemForm>) {
-    setItensEdit(prev => prev.map(i => i.key === key ? { ...i, ...patch } : i));
-  }
-
-  async function handleSalvarItens() {
-    if (!selected) return;
-    if (itensEdit.length === 0 || itensEdit.some(i => !i.nome.trim() || !i.precoUnitario)) {
-      alert('Preencha o nome e o preço de todos os itens.');
-      return;
-    }
-    setSalvandoItens(true);
-    try {
-      const atualizado = await updatePedidoItens(
-        selected.id,
-        itensEdit.map(i => ({
-          id: i.itemId,
-          nomeProduto: i.nome,
-          skuProduto: i.sku || `MAN-${Date.now()}`,
-          quantidade: Math.max(1, parseInt(i.quantidade) || 1),
-          precoUnitario: parseFloat(i.precoUnitario) || 0,
-        })),
-        parseFloat(freteEdit) || 0,
-        parseFloat(descontoEdit) || 0,
-      );
-      setPedidos(prev => prev.map(p => p.id === atualizado.id ? atualizado : p));
-      setSelected(atualizado);
-      setEditandoItens(false);
-    } catch {
-      alert('Erro ao salvar itens do pedido.');
-    } finally {
-      setSalvandoItens(false);
-    }
-  }
+  const selected = pedidos.find(p => p.id === selectedId) ?? null;
 
   const filtered = pedidos.filter(p =>
     (search === '' || p.numero.toLowerCase().includes(search.toLowerCase()) ||
@@ -224,92 +140,6 @@ export function AdminPedidos() {
     }
   }
 
-  async function handleLimparEtiquetaLocal() {
-    if (!selected) return;
-    if (!confirm('Remover a etiqueta SOMENTE do sistema (banco de dados)?\n\nUse esta opção APENAS se você já cancelou manualmente no painel MelhorEnvio. O pedido voltará ao status "pago".')) return;
-    setLimpandoEtiqueta(true);
-    setErroEtiqueta('');
-    try {
-      await limparEtiquetaLocal(selected.id);
-      const atualizados = await getPedidos();
-      setPedidos(atualizados);
-      setSelected(atualizados.find(p => p.id === selected.id) ?? null);
-    } catch (e) {
-      setErroEtiqueta(`Erro ao limpar etiqueta: ${e instanceof Error ? e.message : 'Tente novamente.'}`);
-    } finally {
-      setLimpandoEtiqueta(false);
-    }
-  }
-
-  async function handleGerarEtiqueta() {
-    if (!selected) return;
-    setGerandoEtiqueta(true);
-    setErroEtiqueta('');
-    try {
-      const result = await gerarEtiqueta(selected.id);
-      if (result.error) {
-        setErroEtiqueta(result.error);
-        return;
-      }
-      // Recarregar pedidos para pegar campos atualizados
-      const atualizados = await getPedidos();
-      setPedidos(atualizados);
-      const updatedSelected = atualizados.find(p => p.id === selected.id) ?? null;
-      setSelected(updatedSelected);
-    } catch {
-      setErroEtiqueta('Erro ao conectar com o servidor. Tente novamente.');
-    } finally {
-      setGerandoEtiqueta(false);
-    }
-  }
-
-  async function handleCancelarEtiqueta() {
-    if (!selected) return;
-    if (!confirm('Cancelar a etiqueta e estornar o valor no MelhorEnvio? O pedido voltará ao status "pago".')) return;
-    setCancelandoEtiqueta(true);
-    setErroEtiqueta('');
-    try {
-      const result = await cancelarEtiqueta(selected.id);
-      // Captura qualquer campo de erro que a função ou o Supabase possam retornar
-      const msgErro = result.error ?? (result as any).message ?? (result as any).msg ?? null;
-      if (msgErro && !result.success) {
-        setErroEtiqueta(String(msgErro));
-        return;
-      }
-      const atualizados = await getPedidos();
-      setPedidos(atualizados);
-      const updatedSelected = atualizados.find(p => p.id === selected.id) ?? null;
-      setSelected(updatedSelected);
-    } catch (e) {
-      setErroEtiqueta(`Erro ao cancelar a etiqueta: ${e instanceof Error ? e.message : 'Tente novamente.'}`);
-    } finally {
-      setCancelandoEtiqueta(false);
-    }
-  }
-
-  async function handleSalvarRastreio() {
-    if (!selected || !rastreio.trim()) return;
-    setSalvandoRastreio(true);
-    try {
-      await updatePedidoRastreio(selected.id, rastreio.trim(), 'enviado');
-      const updated = { ...selected, codigoRastreio: rastreio.trim(), status: 'enviado' as Pedido['status'] };
-      setPedidos(prev => prev.map(p => p.id === selected.id ? updated : p));
-      setSelected(updated);
-    } catch {
-      alert('Erro ao salvar rastreio.');
-    } finally {
-      setSalvandoRastreio(false);
-    }
-  }
-
-  async function handleCancelarPedido() {
-    if (!selected || !confirm('Cancelar este pedido?')) return;
-    await updatePedidoStatus(selected.id, 'cancelado');
-    const updated = { ...selected, status: 'cancelado' as Pedido['status'] };
-    setPedidos(prev => prev.map(p => p.id === selected.id ? updated : p));
-    setSelected(updated);
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       <SectionHeader
@@ -351,7 +181,7 @@ export function AdminPedidos() {
                   </td>
                 </tr>
               ) : paginated.map(p => (
-                <tr key={p.id} className="border-t border-cream-100 hover:bg-cream-50 transition-colors cursor-pointer" onClick={() => abrirPedido(p)}>
+                <tr key={p.id} className="border-t border-cream-100 hover:bg-cream-50 transition-colors cursor-pointer" onClick={() => setSelectedId(p.id)}>
                   <td className="table-td font-medium text-charcoal-700">{p.numero}</td>
                   <td className="table-td">
                     <p className="text-sm text-charcoal-700">{p.cliente?.name ?? '—'}</p>
@@ -362,7 +192,7 @@ export function AdminPedidos() {
                   <td className="table-td text-charcoal-500">{p.formaPagamento}</td>
                   <td className="table-td text-charcoal-500">{new Date(p.createdAt).toLocaleDateString('pt-BR')}</td>
                   <td className="table-td">
-                    <Badge variant={statusVariant[p.status] ?? 'inactive'}>{p.status}</Badge>
+                    <Badge variant={PEDIDO_STATUS_VARIANT[p.status] ?? 'inactive'}>{PEDIDO_STATUS_LABEL[p.status] ?? p.status}</Badge>
                   </td>
                   <td className="table-td">
                     {p.formaEntrega === 'retirada' ? (
@@ -378,7 +208,7 @@ export function AdminPedidos() {
                     )}
                   </td>
                   <td className="table-td">
-                    <button onClick={e => { e.stopPropagation(); setSelected(p); setRastreio(p.codigoRastreio ?? ''); setErroEtiqueta(''); }} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors">
+                    <button onClick={e => { e.stopPropagation(); setSelectedId(p.id); }} className="p-1.5 text-charcoal-400 hover:text-forest-500 hover:bg-forest-50 rounded-sm transition-colors">
                       <Eye size={15} />
                     </button>
                   </td>
@@ -529,363 +359,11 @@ export function AdminPedidos() {
       </Modal>
 
       {/* ── Modal — Detalhe do pedido ────────────────────────────────────────── */}
-      <Modal open={!!selected} onClose={() => { setSelected(null); setAssDetalhe(null); }} title={`Pedido ${selected?.numero}`} size="xl">
-        {selected && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              {[
-                { label: 'Cliente', value: selected.cliente?.name ?? '—' },
-                { label: 'Data', value: new Date(selected.createdAt).toLocaleDateString('pt-BR') },
-                { label: 'Pagamento', value: selected.formaPagamento },
-                { label: 'Status', value: <Badge variant={statusVariant[selected.status] ?? 'inactive'}>{selected.status}</Badge> },
-              ].map(info => (
-                <div key={info.label} className="bg-cream-50 rounded-sm p-3">
-                  <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>
-                  <div className="text-sm font-medium text-charcoal-700">{info.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Origem: assinatura */}
-            {selected.tipo === 'assinatura' && (
-              <div className="rounded-sm border border-forest-200 bg-forest-50 p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Link2 size={14} className="text-forest-600" />
-                  <p className="text-xs font-medium text-forest-700 uppercase tracking-wider">Pedido de assinatura</p>
-                  {carregandoAss && <RefreshCw size={12} className="text-forest-400 animate-spin ml-auto" />}
-                </div>
-
-                {(() => {
-                  // Extrai período do número do pedido: DM-YYYYMM-xxx
-                  const match = selected.numero.match(/^DM-(\d{4})(\d{2})-/);
-                  const periodoStr = match ? `${match[2]}/${match[1]}` : null;
-
-                  // Ciclo correspondente (disponível quando assDetalhe carregou)
-                  const ciclo = assDetalhe?.ciclos.find(c => c.id === selected.cicloId) ?? null;
-
-                  return (
-                    <div className="space-y-3">
-                      {/* Grid de campos */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {/* Plano */}
-                        <div className="bg-white/70 rounded-sm p-2.5">
-                          <p className="text-xs text-forest-600 mb-0.5">Plano</p>
-                          <p className="text-sm font-medium text-charcoal-700">
-                            {assDetalhe ? assDetalhe.plano.nome : <span className="text-charcoal-300 italic">—</span>}
-                          </p>
-                        </div>
-
-                        {/* Período */}
-                        <div className="bg-white/70 rounded-sm p-2.5">
-                          <p className="text-xs text-forest-600 mb-0.5">Período</p>
-                          <p className="text-sm font-medium text-charcoal-700">
-                            {ciclo ? `${String(ciclo.mes).padStart(2,'0')}/${ciclo.ano}` : periodoStr ?? '—'}
-                          </p>
-                        </div>
-
-                        {/* Edição */}
-                        <div className="bg-white/70 rounded-sm p-2.5">
-                          <p className="text-xs text-forest-600 mb-0.5">Edição</p>
-                          <p className="text-sm font-medium text-charcoal-700">
-                            {ciclo?.edicaoTitulo ?? <span className="text-charcoal-300 italic">Sem edição</span>}
-                          </p>
-                        </div>
-
-                        {/* Status assinatura */}
-                        {assDetalhe && (
-                          <div className="bg-white/70 rounded-sm p-2.5">
-                            <p className="text-xs text-forest-600 mb-0.5">Status assinatura</p>
-                            <Badge variant={({ ativa:'active', pendente:'pending', inadimplente:'cancelled', cancelada:'inactive', pausada:'inactive' } as Record<string,'active'|'pending'|'cancelled'|'inactive'>)[assDetalhe.status] ?? 'inactive'}>
-                              {assDetalhe.status}
-                            </Badge>
-                          </div>
-                        )}
-
-                        {/* Preferência */}
-                        {assDetalhe && (
-                          <div className="bg-white/70 rounded-sm p-2.5">
-                            <p className="text-xs text-forest-600 mb-0.5">Preferência</p>
-                            <p className="text-sm font-medium text-charcoal-700">
-                              {assDetalhe.preferenciaCafe === 'grao' ? 'Grão' : `Moído (${assDetalhe.tipoMoagem ?? '—'})`}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* ID da assinatura — sempre visível */}
-                      <p className="text-xs text-forest-600">
-                        ID: <span className="font-mono text-charcoal-500">{selected.assinaturaId}</span>
-                      </p>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* Itens */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider">Itens do pedido</p>
-                {!editandoItens && selected.status !== 'cancelado' && (
-                  <button onClick={abrirEditarItens} className="flex items-center gap-1.5 text-xs text-forest-600 hover:text-forest-700 font-medium">
-                    <Pencil size={12} /> Editar itens
-                  </button>
-                )}
-              </div>
-
-              {!editandoItens ? (
-                <div className="space-y-2">
-                  {selected.itens.map(item => (
-                    <div key={item.id} className="flex items-center justify-between py-2 border-b border-cream-100">
-                      <div className="flex items-center gap-3">
-                        <Package size={16} className="text-earth-400" />
-                        <div>
-                          <p className="text-sm text-charcoal-700">{item.produto.nome}</p>
-                          {item.produto.sku && <p className="text-xs text-charcoal-400">SKU: {item.produto.sku}</p>}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-charcoal-600">x{item.quantidade}</p>
-                        <p className="text-sm font-medium text-charcoal-700">R$ {item.subtotal.toFixed(2)}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-3 bg-cream-50 rounded-sm p-3 border border-cream-200">
-                  <div className="space-y-2">
-                    {itensEdit.map(item => (
-                      <div key={item.key} className="flex gap-2 items-start">
-                        <div className="flex-1">
-                          <input
-                            value={item.nome}
-                            onChange={e => atualizarItemEdit(item.key, { nome: e.target.value })}
-                            placeholder="Nome do produto *"
-                            className="w-full px-2.5 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 placeholder-charcoal-300 focus:outline-none focus:ring-1 focus:ring-forest-400"
-                          />
-                        </div>
-                        <div className="w-20">
-                          <input
-                            type="number" min="1" value={item.quantidade}
-                            onChange={e => atualizarItemEdit(item.key, { quantidade: e.target.value })}
-                            placeholder="Qtd"
-                            className="w-full px-2.5 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
-                          />
-                        </div>
-                        <div className="w-32">
-                          <input
-                            type="number" min="0" step="0.01" value={item.precoUnitario}
-                            onChange={e => atualizarItemEdit(item.key, { precoUnitario: e.target.value })}
-                            placeholder="Preço *"
-                            className="w-full px-2.5 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
-                          />
-                        </div>
-                        <div className="w-24 text-right pt-1.5 text-sm text-charcoal-500">
-                          R$ {((parseFloat(item.quantidade) || 0) * (parseFloat(item.precoUnitario) || 0)).toFixed(2)}
-                        </div>
-                        <button onClick={() => setItensEdit(prev => prev.filter(i => i.key !== item.key))} className="p-1.5 text-charcoal-300 hover:text-red-500 transition-colors mt-0.5">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button onClick={() => setItensEdit(prev => [...prev, emptyEditItem()])} className="flex items-center gap-1.5 text-sm text-forest-600 hover:text-forest-700 font-medium">
-                    <Plus size={13} /> Adicionar item
-                  </button>
-
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <Input label="Frete (R$)" type="number" min="0" step="0.01" value={freteEdit} onChange={e => setFreteEdit(e.target.value)} />
-                    <Input label="Desconto (R$)" type="number" min="0" step="0.01" value={descontoEdit} onChange={e => setDescontoEdit(e.target.value)} />
-                  </div>
-
-                  <div className="flex justify-end gap-3 pt-1">
-                    <Button variant="ghost" size="sm" onClick={() => setEditandoItens(false)}>Cancelar</Button>
-                    <Button variant="primary" size="sm" loading={salvandoItens} onClick={handleSalvarItens}>
-                      Salvar itens
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Totals */}
-            <div className="bg-cream-50 rounded-sm p-4 space-y-2">
-              <div className="flex justify-between text-sm"><span className="text-charcoal-500">Subtotal</span><span>R$ {selected.subtotal.toFixed(2)}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-charcoal-500">Frete</span><span>R$ {selected.frete.toFixed(2)}</span></div>
-              {selected.desconto > 0 && (
-                <div className="flex justify-between text-sm text-forest-500">
-                  <span>Desconto {selected.cupom && `(${selected.cupom})`}</span>
-                  <span>- R$ {selected.desconto.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-medium border-t border-cream-200 pt-2">
-                <span className="text-charcoal-700">Total</span>
-                <span className="font-serif text-lg">R$ {selected.total.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* Endereço */}
-            <div>
-              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Endereço de entrega</p>
-              <p className="text-sm text-charcoal-600">
-                {selected.enderecoEntrega.logradouro}, {selected.enderecoEntrega.numero}
-                {selected.enderecoEntrega.complemento && `, ${selected.enderecoEntrega.complemento}`}
-              </p>
-              <p className="text-sm text-charcoal-600">
-                {selected.enderecoEntrega.bairro} — {selected.enderecoEntrega.cidade}/{selected.enderecoEntrega.estado} · CEP {selected.enderecoEntrega.cep}
-              </p>
-            </div>
-
-            {/* Observações */}
-            {selected.observacoes && (
-              <div>
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-1">Observações</p>
-                <p className="text-sm text-charcoal-600">{selected.observacoes}</p>
-              </div>
-            )}
-
-            {/* Etiqueta MelhorEnvio — não se aplica a pedidos de retirada */}
-            {selected.formaEntrega !== 'retirada' && selected.status !== 'cancelado' && selected.status !== 'reembolsado' && (
-              <div>
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Etiqueta de envio</p>
-
-                {selected.etiquetaUrl ? (
-                  /* Etiqueta já gerada */
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-3 p-3 bg-forest-50 border border-forest-200 rounded-sm">
-                      <Tag size={16} className="text-forest-500" />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-forest-700">Etiqueta gerada</p>
-                        {selected.codigoRastreio && (
-                          <p className="text-xs text-charcoal-500 font-mono mt-0.5">{selected.codigoRastreio}</p>
-                        )}
-                      </div>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        loading={cancelandoEtiqueta}
-                        onClick={handleCancelarEtiqueta}
-                        icon={<X size={13} />}
-                      >
-                        Cancelar etiqueta
-                      </Button>
-                      <a href={selected.etiquetaUrl} target="_blank" rel="noopener noreferrer">
-                        <Button variant="primary" size="sm" icon={<ExternalLink size={13} />}>
-                          Imprimir etiqueta
-                        </Button>
-                      </a>
-                    </div>
-                    {erroEtiqueta && (
-                      <div className="space-y-2">
-                        <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-sm text-sm text-red-700">
-                          <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                          <span className="flex-1">{erroEtiqueta}</span>
-                        </div>
-                        <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-sm">
-                          <AlertCircle size={13} className="text-amber-600 shrink-0" />
-                          <p className="text-xs text-amber-700 flex-1">
-                            Cancele manualmente no <strong>painel MelhorEnvio</strong> e depois use o botão abaixo para atualizar o sistema.
-                          </p>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            loading={limpandoEtiqueta}
-                            onClick={handleLimparEtiquetaLocal}
-                          >
-                            Limpar no sistema
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* Sem etiqueta — gerar */
-                  <div className="space-y-2">
-                    {erroEtiqueta && (
-                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-sm text-sm text-red-700">
-                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                        {erroEtiqueta}
-                      </div>
-                    )}
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={gerandoEtiqueta}
-                      onClick={handleGerarEtiqueta}
-                      icon={<Tag size={13} />}
-                    >
-                      {gerandoEtiqueta ? 'Gerando etiqueta…' : 'Gerar etiqueta (MelhorEnvio)'}
-                    </Button>
-                    <p className="text-xs text-charcoal-400">
-                      Gera a etiqueta e debita do saldo MelhorEnvio automaticamente.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Rastreio manual — não se aplica a pedidos de retirada */}
-            {selected.formaEntrega !== 'retirada' && !selected.etiquetaUrl && selected.status !== 'cancelado' && selected.status !== 'entregue' && (
-              <div>
-                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Código de rastreio manual</p>
-                <div className="flex gap-2">
-                  <Input value={rastreio} onChange={e => setRastreio(e.target.value)} placeholder="Ex: BR123456789BR" className="flex-1" />
-                  <Button variant="secondary" size="sm" loading={salvandoRastreio} onClick={handleSalvarRastreio} icon={<Truck size={13} />}>
-                    Salvar
-                  </Button>
-                </div>
-                {selected.codigoRastreio && (
-                  <p className="mt-1 text-xs text-charcoal-400">Atual: <span className="font-mono">{selected.codigoRastreio}</span></p>
-                )}
-              </div>
-            )}
-
-            {/* Ações */}
-            <div className="flex flex-wrap gap-3 pt-2 border-t border-cream-200">
-              {selected.status === 'pago' && (
-                <Button variant="secondary" size="sm" onClick={async () => {
-                  await updatePedidoStatus(selected.id, 'em_separacao');
-                  const u = { ...selected, status: 'em_separacao' as Pedido['status'] };
-                  setPedidos(prev => prev.map(p => p.id === selected.id ? u : p));
-                  setSelected(u);
-                }}>
-                  <Check size={14} /> Em separação
-                </Button>
-              )}
-              {selected.status === 'em_separacao' && selected.formaEntrega === 'retirada' && (
-                <Button variant="primary" size="sm" onClick={async () => {
-                  await updatePedidoStatus(selected.id, 'disponivel_retirada');
-                  const u = { ...selected, status: 'disponivel_retirada' as Pedido['status'] };
-                  setPedidos(prev => prev.map(p => p.id === selected.id ? u : p));
-                  setSelected(u);
-                }} icon={<Tag size={14} />}>
-                  Marcar disponível para retirada
-                </Button>
-              )}
-              {selected.status === 'em_separacao' && selected.formaEntrega !== 'retirada' && (
-                <Button variant="primary" size="sm" onClick={handleSalvarRastreio} loading={salvandoRastreio} icon={<Truck size={14} />}>
-                  Marcar como enviado
-                </Button>
-              )}
-              {selected.status === 'disponivel_retirada' && (
-                <Button variant="primary" size="sm" onClick={async () => {
-                  await updatePedidoStatus(selected.id, 'retirado');
-                  const u = { ...selected, status: 'retirado' as Pedido['status'] };
-                  setPedidos(prev => prev.map(p => p.id === selected.id ? u : p));
-                  setSelected(u);
-                }} icon={<Check size={14} />}>
-                  Marcar como retirado
-                </Button>
-              )}
-              {selected.status !== 'cancelado' && selected.status !== 'entregue' && selected.status !== 'retirado' && selected.status !== 'reembolsado' && (
-                <Button variant="danger" size="sm" onClick={handleCancelarPedido} icon={<X size={14} />}>
-                  Cancelar pedido
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
+      <PedidoDetalheModal
+        pedido={selected}
+        onClose={() => setSelectedId(null)}
+        onUpdated={u => setPedidos(prev => prev.map(p => p.id === u.id ? u : p))}
+      />
     </div>
   );
 }
