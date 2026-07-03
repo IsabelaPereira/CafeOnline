@@ -1,17 +1,151 @@
 import { useEffect, useState } from 'react';
-import { Package, Truck, Check, X, Plus, Trash2, Tag, ExternalLink, AlertCircle, RefreshCw, Link2, Pencil } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Package, Truck, Check, X, Plus, Trash2, Tag, ExternalLink, AlertCircle, RefreshCw, Link2, Pencil, History, MapPin } from 'lucide-react';
 import { Badge, Modal, Button, Input } from '../ui';
 import {
   getPedido, updatePedidoStatus, updatePedidoRastreio, updatePedidoItens,
-  gerarEtiqueta, cancelarEtiqueta, limparEtiquetaLocal,
+  gerarEtiqueta, cancelarEtiqueta, limparEtiquetaLocal, marcarComoRetirado, getPedidoHistorico,
 } from '../../services/pedidos.service';
 import { getAssinatura } from '../../services/assinaturas.service';
 import { PEDIDO_STATUS_LABEL, PEDIDO_STATUS_VARIANT } from '../../constants/pedidoStatus';
-import type { Pedido, Assinatura } from '../../types';
+import type { Pedido, Assinatura, StatusPedido } from '../../types';
+import type { PedidoAuditLog } from '../../services/pedidos.service';
 
 // itemId: id real em itens_pedido (undefined = item novo, ainda não salvo)
 type EditItemForm = { key: string; itemId?: string; nome: string; sku: string; quantidade: string; precoUnitario: string };
 const emptyEditItem = (): EditItemForm => ({ key: crypto.randomUUID(), nome: '', sku: '', quantidade: '1', precoUnitario: '' });
+
+// ── Histórico (auditoria) ────────────────────────────────────────────────────
+
+const FIELD_LABEL: Record<string, string> = {
+  status: 'Status', frete: 'Frete', desconto: 'Desconto', subtotal: 'Subtotal', total: 'Total',
+  forma_entrega: 'Forma de entrega', forma_pagamento: 'Forma de pagamento',
+  codigo_rastreio: 'Código de rastreio', retirado_por: 'Retirado por',
+  observacoes: 'Observações', etiqueta_url: 'Etiqueta', melhorenvio_cart_id: 'Carrinho MelhorEnvio',
+  quantidade: 'Quantidade', preco_unitario: 'Preço unitário', nome_produto: 'Produto',
+};
+const SKIP_FIELDS = new Set(['updated_at', 'created_at', 'id', 'subtotal_calc']);
+
+const STATUS_STEP_TITULO: Record<string, string> = {
+  pendente: 'Reaberto (pendente)',
+  pago: 'Pagamento confirmado',
+  em_separacao: 'Marcado como em separação',
+  enviado: 'Marcado como enviado',
+  entregue: 'Marcado como entregue',
+  disponivel_retirada: 'Disponível para retirada',
+  retirado: 'Retirado',
+  cancelado: 'Pedido cancelado',
+  reembolsado: 'Pedido reembolsado',
+};
+
+type HistoricoTipo = 'criacao' | 'status' | 'edicao' | 'item_add' | 'item_remove' | 'item_edit' | 'exclusao';
+
+interface HistoricoStep {
+  id: string;
+  tipo: HistoricoTipo;
+  titulo: string;
+  detalhe?: string;
+  usuario: string;
+  origem: string;
+  criadoEm: string;
+}
+
+const TIPO_CONFIG: Record<HistoricoTipo, { icon: ReactNode; color: string }> = {
+  criacao:     { icon: <Package size={13} />, color: 'bg-forest-100 text-forest-600 border-forest-200' },
+  status:      { icon: <Check size={13} />,   color: 'bg-blue-100 text-blue-600 border-blue-200' },
+  edicao:      { icon: <Pencil size={13} />,  color: 'bg-gold-100 text-gold-700 border-gold-200' },
+  item_add:    { icon: <Plus size={13} />,    color: 'bg-forest-100 text-forest-600 border-forest-200' },
+  item_remove: { icon: <Trash2 size={13} />,  color: 'bg-red-100 text-red-500 border-red-200' },
+  item_edit:   { icon: <Pencil size={13} />,  color: 'bg-gold-100 text-gold-700 border-gold-200' },
+  exclusao:    { icon: <Trash2 size={13} />,  color: 'bg-red-100 text-red-500 border-red-200' },
+};
+
+function formatDateHora(iso: string): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(iso));
+}
+
+function formatFieldValue(field: string, value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (field === 'status') return PEDIDO_STATUS_LABEL[value as StatusPedido] ?? String(value);
+  if (field === 'forma_entrega') return value === 'retirada' ? 'Retirada na loja' : 'Entrega';
+  if (['frete', 'desconto', 'subtotal', 'total', 'preco_unitario'].includes(field) && typeof value === 'number') {
+    return `R$ ${value.toFixed(2)}`;
+  }
+  if (typeof value === 'boolean') return value ? 'sim' : 'não';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function buildPedidoHistoricoSteps(logs: PedidoAuditLog[]): HistoricoStep[] {
+  return logs
+    .map((log): HistoricoStep | null => {
+      const usuario = log.usuarioNome ?? (log.operacao === 'INSERT' ? 'Cliente' : 'Sistema');
+      const base = { id: log.id, usuario, criadoEm: log.criadoEm };
+
+      // ── Itens do pedido ──────────────────────────────────────────────────
+      if (log.tabela === 'itens_pedido') {
+        const origem = log.usuarioId ? 'Painel administrativo' : 'Sistema/automação';
+        if (log.operacao === 'INSERT') {
+          const d = log.dadosDepois ?? {};
+          return {
+            ...base, origem, tipo: 'item_add', titulo: 'Item adicionado',
+            detalhe: `${d.nome_produto ?? '—'} · x${d.quantidade ?? '?'} · ${formatFieldValue('preco_unitario', d.preco_unitario)}`,
+          };
+        }
+        if (log.operacao === 'DELETE') {
+          const d = log.dadosAntes ?? {};
+          return { ...base, origem, tipo: 'item_remove', titulo: 'Item removido', detalhe: `${d.nome_produto ?? '—'}` };
+        }
+        const antes = log.dadosAntes ?? {};
+        const depois = log.dadosDepois ?? {};
+        const nome = (depois.nome_produto ?? antes.nome_produto ?? '—') as string;
+        const campos = Object.keys(depois).filter(k => !SKIP_FIELDS.has(k) && k !== 'nome_produto');
+        if (campos.length === 0) return null;
+        const detalhe = campos.map(k => `${FIELD_LABEL[k] ?? k}: ${formatFieldValue(k, antes[k])} → ${formatFieldValue(k, depois[k])}`).join(' · ');
+        return { ...base, origem, tipo: 'item_edit', titulo: `Item alterado — ${nome}`, detalhe };
+      }
+
+      // ── Pedido ───────────────────────────────────────────────────────────
+      const origem = log.usuarioId
+        ? 'Painel administrativo'
+        : (log.operacao === 'INSERT'
+            ? (log.dadosDepois?.tipo === 'assinatura' ? 'Sistema (cobrança da assinatura)' : 'Site (checkout do cliente)')
+            : 'Sistema/automação');
+
+      if (log.operacao === 'INSERT') {
+        const d = log.dadosDepois ?? {};
+        const detalhe = [d.numero, formatFieldValue('total', d.total), formatFieldValue('forma_entrega', d.forma_entrega)]
+          .filter(Boolean).join(' · ');
+        return { ...base, origem, tipo: 'criacao', titulo: 'Pedido criado', detalhe: detalhe || undefined };
+      }
+      if (log.operacao === 'DELETE') {
+        return { ...base, origem, tipo: 'exclusao', titulo: 'Pedido excluído' };
+      }
+
+      const antes = log.dadosAntes ?? {};
+      const depois = log.dadosDepois ?? {};
+      const campos = Object.keys(depois).filter(k => !SKIP_FIELDS.has(k));
+
+      if ('status' in depois) {
+        const novo = depois.status as string;
+        const titulo = STATUS_STEP_TITULO[novo] ?? `Status alterado para ${PEDIDO_STATUS_LABEL[novo as StatusPedido] ?? novo}`;
+        const partes: string[] = [];
+        if (antes.status) partes.push(`De "${PEDIDO_STATUS_LABEL[antes.status as StatusPedido] ?? antes.status}" para "${PEDIDO_STATUS_LABEL[novo as StatusPedido] ?? novo}"`);
+        if (novo === 'retirado' && depois.retirado_por) partes.push(`Retirado por: ${depois.retirado_por}`);
+        if (depois.codigo_rastreio) partes.push(`Rastreio: ${depois.codigo_rastreio}`);
+        const outros = campos.filter(k => !['status', 'retirado_por', 'codigo_rastreio'].includes(k));
+        partes.push(...outros.map(k => `${FIELD_LABEL[k] ?? k}: ${formatFieldValue(k, antes[k])} → ${formatFieldValue(k, depois[k])}`));
+        return { ...base, origem, tipo: 'status', titulo, detalhe: partes.join(' · ') || undefined };
+      }
+
+      if (campos.length === 0) return null;
+      const detalhe = campos.map(k => `${FIELD_LABEL[k] ?? k}: ${formatFieldValue(k, antes[k])} → ${formatFieldValue(k, depois[k])}`).join(' · ');
+      return { ...base, origem, tipo: 'edicao', titulo: 'Pedido alterado', detalhe: detalhe || undefined };
+    })
+    .filter((s): s is HistoricoStep => s !== null);
+}
 
 interface PedidoDetalheModalProps {
   /** Pedido a exibir; passar null fecha o modal. */
@@ -25,6 +159,10 @@ interface PedidoDetalheModalProps {
  *  etiqueta MelhorEnvio, rastreio manual e ações de status. Compartilhado entre
  *  as telas de Pedidos e Logística para evitar duas cópias divergentes. */
 export function PedidoDetalheModal({ pedido, onClose, onUpdated }: PedidoDetalheModalProps) {
+  const [modalTab, setModalTab]             = useState<'detalhes' | 'historico'>('detalhes');
+  const [historicoLogs, setHistoricoLogs]   = useState<PedidoAuditLog[]>([]);
+  const [historicoLoading, setHistoricoLoading] = useState(false);
+
   const [assDetalhe, setAssDetalhe]         = useState<Assinatura | null>(null);
   const [carregandoAss, setCarregandoAss]   = useState(false);
   const [rastreio, setRastreio]             = useState('');
@@ -40,11 +178,19 @@ export function PedidoDetalheModal({ pedido, onClose, onUpdated }: PedidoDetalhe
   const [descontoEdit, setDescontoEdit]     = useState('0');
   const [salvandoItens, setSalvandoItens]   = useState(false);
 
+  const [prontoParaRetirar, setProntoParaRetirar] = useState(false);
+  const [nomeRetirou, setNomeRetirou]             = useState('');
+  const [marcandoRetirado, setMarcandoRetirado]   = useState(false);
+
   useEffect(() => {
     setRastreio(pedido?.codigoRastreio ?? '');
     setErroEtiqueta('');
     setEditandoItens(false);
     setAssDetalhe(null);
+    setModalTab('detalhes');
+    setProntoParaRetirar(false);
+    setNomeRetirou('');
+    setHistoricoLogs([]);
     if (pedido?.assinaturaId) {
       setCarregandoAss(true);
       getAssinatura(pedido.assinaturaId)
@@ -52,7 +198,16 @@ export function PedidoDetalheModal({ pedido, onClose, onUpdated }: PedidoDetalhe
         .catch(() => { /* silencia */ })
         .finally(() => setCarregandoAss(false));
     }
+    if (pedido?.id) {
+      setHistoricoLoading(true);
+      getPedidoHistorico(pedido.id)
+        .then(setHistoricoLogs)
+        .catch(() => setHistoricoLogs([]))
+        .finally(() => setHistoricoLoading(false));
+    }
   }, [pedido?.id, pedido?.assinaturaId, pedido?.codigoRastreio]);
+
+  const historicoSteps = buildPedidoHistoricoSteps(historicoLogs);
 
   function abrirEditarItens() {
     if (!pedido) return;
@@ -179,16 +334,93 @@ export function PedidoDetalheModal({ pedido, onClose, onUpdated }: PedidoDetalhe
     await handleMudarStatus('cancelado');
   }
 
+  async function handleMarcarRetirado() {
+    if (!pedido || !nomeRetirou.trim()) return;
+    setMarcandoRetirado(true);
+    try {
+      await marcarComoRetirado(pedido.id, nomeRetirou.trim());
+      onUpdated({ ...pedido, status: 'retirado', retiradoPor: nomeRetirou.trim() });
+      setProntoParaRetirar(false);
+      setNomeRetirou('');
+    } catch {
+      alert('Erro ao marcar como retirado.');
+    } finally {
+      setMarcandoRetirado(false);
+    }
+  }
+
   return (
     <Modal open={!!pedido} onClose={onClose} title={`Pedido ${pedido?.numero ?? ''}`} size="xl">
       {pedido && (
-        <div className="space-y-6">
+        <div className="space-y-5">
+          {/* Abas internas: Detalhes / Histórico */}
+          <div className="flex gap-1 border-b border-cream-200 -mt-1">
+            <button
+              onClick={() => setModalTab('detalhes')}
+              className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+                modalTab === 'detalhes' ? 'text-forest-600 border-forest-500' : 'text-charcoal-400 border-transparent hover:text-charcoal-600'
+              }`}
+            >
+              Detalhes
+            </button>
+            <button
+              onClick={() => setModalTab('historico')}
+              className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
+                modalTab === 'historico' ? 'text-forest-600 border-forest-500' : 'text-charcoal-400 border-transparent hover:text-charcoal-600'
+              }`}
+            >
+              <History size={12} /> Histórico
+              {historicoLogs.length > 0 && (
+                <span className="text-[10px] bg-cream-200 text-charcoal-500 rounded-full px-1.5 leading-4">{historicoLogs.length}</span>
+              )}
+            </button>
+          </div>
+
+          {modalTab === 'historico' ? (
+            historicoLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <RefreshCw size={22} className="animate-spin text-forest-500" />
+              </div>
+            ) : historicoSteps.length === 0 ? (
+              <p className="text-sm text-charcoal-400 py-6 text-center">Nenhum evento de histórico registrado para este pedido.</p>
+            ) : (
+              <div className="space-y-0 max-h-[480px] overflow-y-auto pr-1">
+                {historicoSteps.map((step, i) => {
+                  const cfg = TIPO_CONFIG[step.tipo];
+                  return (
+                    <div key={step.id} className="relative pl-9 pb-6 last:pb-0">
+                      {i < historicoSteps.length - 1 && (
+                        <span className="absolute left-[13px] top-6 bottom-0 w-px bg-cream-200" />
+                      )}
+                      <span className={`absolute left-0 top-0 flex items-center justify-center w-7 h-7 rounded-full border ${cfg.color}`}>
+                        {cfg.icon}
+                      </span>
+                      <p className="text-sm font-medium text-charcoal-700">{step.titulo}</p>
+                      <p className="text-xs text-charcoal-400 mt-0.5">
+                        {formatDateHora(step.criadoEm)} · {step.usuario}
+                        <span className="inline-flex items-center gap-1 ml-1.5">
+                          <MapPin size={10} className="inline" /> {step.origem}
+                        </span>
+                      </p>
+                      {step.detalhe && (
+                        <p className="text-xs text-charcoal-500 mt-1.5 bg-cream-50 border border-cream-200 rounded-sm px-2.5 py-1.5">
+                          {step.detalhe}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+          <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
               { label: 'Cliente', value: pedido.cliente?.name ?? '—' },
               { label: 'Data', value: new Date(pedido.createdAt).toLocaleDateString('pt-BR') },
               { label: 'Pagamento', value: pedido.formaPagamento },
               { label: 'Status', value: <Badge variant={PEDIDO_STATUS_VARIANT[pedido.status] ?? 'inactive'}>{PEDIDO_STATUS_LABEL[pedido.status] ?? pedido.status}</Badge> },
+              ...(pedido.retiradoPor ? [{ label: 'Retirado por', value: pedido.retiradoPor as ReactNode }] : []),
             ].map(info => (
               <div key={info.label} className="bg-cream-50 rounded-sm p-3">
                 <p className="text-xs text-charcoal-400 mb-1">{info.label}</p>
@@ -499,8 +731,8 @@ export function PedidoDetalheModal({ pedido, onClose, onUpdated }: PedidoDetalhe
                 Marcar como enviado
               </Button>
             )}
-            {pedido.status === 'disponivel_retirada' && (
-              <Button variant="primary" size="sm" onClick={() => handleMudarStatus('retirado')} icon={<Check size={14} />}>
+            {pedido.status === 'disponivel_retirada' && !prontoParaRetirar && (
+              <Button variant="primary" size="sm" onClick={() => setProntoParaRetirar(true)} icon={<Check size={14} />}>
                 Marcar como retirado
               </Button>
             )}
@@ -510,6 +742,39 @@ export function PedidoDetalheModal({ pedido, onClose, onUpdated }: PedidoDetalhe
               </Button>
             )}
           </div>
+
+          {prontoParaRetirar && (
+            <div className="bg-cream-50 border border-cream-200 rounded-sm p-4 space-y-3">
+              <p className="text-xs font-medium text-charcoal-600">Nome completo de quem retirou *</p>
+              <Input
+                value={nomeRetirou}
+                onChange={e => setNomeRetirou(e.target.value)}
+                placeholder="Ex: Maria da Silva"
+                autoFocus
+              />
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { setProntoParaRetirar(false); setNomeRetirou(''); }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={marcandoRetirado}
+                  disabled={!nomeRetirou.trim()}
+                  onClick={handleMarcarRetirado}
+                  icon={<Check size={14} />}
+                >
+                  Confirmar retirada
+                </Button>
+              </div>
+            </div>
+          )}
+          </>
+          )}
         </div>
       )}
     </Modal>

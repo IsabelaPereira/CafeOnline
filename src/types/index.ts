@@ -286,6 +286,7 @@ export interface Pedido {
   formaPagamento: string;
   cupom?: string;
   codigoRastreio?: string;
+  retiradoPor?: string;
   observacoes?: string;
   tipo: 'loja' | 'assinatura';
   assinaturaId?: string;
