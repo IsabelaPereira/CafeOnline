@@ -22,7 +22,7 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
     tipoMoagem: r.tipo_moagem ?? undefined,
     enderecoId: r.endereco_id ?? '',
     endereco: mapEndereco(r.endereco),
-    frete: r.frete, totalMensal: r.total_mensal,
+    frete: r.frete, formaEntrega: (r.forma_entrega ?? 'entrega') as Assinatura['formaEntrega'], totalMensal: r.total_mensal,
     proximaCobranca: r.proxima_cobranca ?? '', proximoEnvio: r.proximo_envio ?? '',
     dataInicio: r.data_inicio, dataFim: r.data_fim ?? undefined,
     motivoCancelamento: r.motivo_cancelamento ?? undefined,
@@ -54,14 +54,14 @@ function mapAssinatura(r: any, clienteInfo?: { nome?: string; email?: string; ph
   };
 }
 
-// Select para listagem admin — ciclos sem join aninhado a pedidos (evita falha PostgREST)
+// Select para listagem admin
 const LIST_SELECT = [
   '*',
   'plano:planos(*)',
   'endereco:enderecos(*)',
   'cobrancas:cobrancas_assinatura(*)',
   'alteracoes:alteracoes_assinatura(*)',
-  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id, edicao:edicoes_clube(id, titulo))',
+  'ciclos:ciclos_assinatura(id, mes, ano, status, codigo_rastreio, data_envio, data_entrega, edicao_id, pedido_id, cobranca_id, edicao:edicoes_clube(id, titulo), pedido:pedidos!pedido_id(id, numero, status))',
 ].join(', ');
 
 // Select completo — para detalhe individual; usa hint explícito para o join pedido
@@ -79,7 +79,7 @@ const BASE_SELECT = [
 // cobrancas INSERT: liberado pela policy "cobrancas_insert_proprio" (migration 010)
 const CLIENT_SELECT = [
   'status, id, cliente_id, plano_id, preferencia_cafe, tipo_moagem',
-  'endereco_id, frete, total_mensal, proxima_cobranca, proximo_envio',
+  'endereco_id, frete, forma_entrega, total_mensal, proxima_cobranca, proximo_envio',
   'data_inicio, data_fim, motivo_cancelamento, stripe_subscription_id, stripe_price_id, created_at, cancelamento_agendado, data_cancelamento_agendado',
   'plano:planos(id, nome, descricao, preco, beneficios, destaque, ativo, ordem, stripe_price_id)',
   'endereco:enderecos(id, apelido, cep, logradouro, numero, complemento, bairro, cidade, estado, padrao)',
@@ -266,7 +266,7 @@ export async function criarPedidoManualAssinatura(
 ): Promise<string> {
   const { data: ass, error: assErr } = await supabase
     .from('assinaturas')
-    .select('id, cliente_id, frete, total_mensal, endereco_id')
+    .select('id, cliente_id, frete, forma_entrega, total_mensal, endereco_id')
     .eq('id', assinaturaId)
     .single();
   if (assErr || !ass) throw new Error('Assinatura não encontrada');
@@ -301,6 +301,7 @@ export async function criarPedidoManualAssinatura(
     desconto:         0,
     total:            valor,
     status:           'pago',
+    forma_entrega:    ass.forma_entrega ?? 'entrega',
     endereco_entrega: enderecoJson,
     forma_pagamento:  'Stripe — Assinatura',
     tipo:             'assinatura',
@@ -310,7 +311,7 @@ export async function criarPedidoManualAssinatura(
 
   if (pedErr || !pedido) throw new Error(`Erro ao criar pedido: ${pedErr?.message}`);
 
-  await supabase.from('itens_pedido').insert({
+  const { error: itemErr } = await supabase.from('itens_pedido').insert({
     pedido_id:      pedido.id,
     produto_id:     null,
     nome_produto:   `Clube Das Matas — Edição ${mes}/${ano}`,
@@ -319,6 +320,7 @@ export async function criarPedidoManualAssinatura(
     preco_unitario: valor,
     subtotal:       valor,
   });
+  if (itemErr) throw new Error(`Erro ao criar item do pedido: ${itemErr.message}`);
 
   if (ciclo?.id) {
     await supabase.from('ciclos_assinatura')

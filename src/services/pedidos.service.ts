@@ -51,6 +51,7 @@ function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedid
     })),
     subtotal: r.subtotal, frete: r.frete, desconto: r.desconto, total: r.total,
     status: r.status as Pedido['status'],
+    formaEntrega: (r.forma_entrega ?? 'entrega') as Pedido['formaEntrega'],
     enderecoEntrega: mapEndereco(r.endereco_entrega as Record<string, string>),
     formaPagamento: r.forma_pagamento ?? '', cupom: r.cupom ?? undefined,
     codigoRastreio: r.codigo_rastreio ?? undefined, observacoes: r.observacoes ?? undefined,
@@ -65,7 +66,7 @@ function mapPedido(r: any, clienteInfo?: { name: string; email: string }): Pedid
 
 // Sem '*' e sem joins aninhados — evita bug do Supabase JS de stripping e erros de join
 const PEDIDO_SELECT = [
-  'status, id, numero, cliente_id, subtotal, frete, desconto, total',
+  'status, id, numero, cliente_id, subtotal, frete, desconto, total, forma_entrega',
   'endereco_entrega, forma_pagamento, cupom, codigo_rastreio, observacoes',
   'tipo, assinatura_id, ciclo_id, melhorenvio_cart_id, etiqueta_url, created_at, updated_at',
   'itens:itens_pedido(id, produto_id, nome_produto, sku_produto, quantidade, preco_unitario, subtotal)',
@@ -95,6 +96,7 @@ export async function createPedido(pedido: {
   subtotal: number; frete: number; desconto: number; total: number;
   enderecoEntrega: Endereco; formaPagamento: string; cupom?: string;
   status?: Pedido['status'];
+  formaEntrega?: Pedido['formaEntrega'];
   observacoes?: string;
 }): Promise<Pedido> {
   const numero = `DM-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
@@ -102,6 +104,7 @@ export async function createPedido(pedido: {
     numero, cliente_id: pedido.clienteId ?? null,
     subtotal: pedido.subtotal, frete: pedido.frete, desconto: pedido.desconto, total: pedido.total,
     status: pedido.status ?? 'pendente',
+    forma_entrega: pedido.formaEntrega ?? 'entrega',
     endereco_entrega: pedido.enderecoEntrega,
     forma_pagamento: pedido.formaPagamento, cupom: pedido.cupom ?? null,
     observacoes: pedido.observacoes ?? null,
@@ -190,4 +193,44 @@ export async function updatePedidoRastreio(id: string, codigoRastreio: string, s
   if (status) patch.status = status;
   const { error } = await supabase.from('pedidos').update(patch).eq('id', id);
   if (error) throw error;
+}
+
+/** Substitui os itens de um pedido (adiciona/remove/altera) e recalcula subtotal/total. */
+export async function updatePedidoItens(
+  pedidoId: string,
+  itens: { id?: string; produtoId?: string; nomeProduto: string; skuProduto: string; quantidade: number; precoUnitario: number }[],
+  frete: number,
+  desconto: number,
+): Promise<Pedido> {
+  const { data: atuais, error: atuaisErr } = await supabase
+    .from('itens_pedido').select('id').eq('pedido_id', pedidoId);
+  if (atuaisErr) throw atuaisErr;
+
+  const idsAtuais    = new Set((atuais ?? []).map((r: { id: string }) => r.id));
+  const idsMantidos  = new Set(itens.filter(i => i.id).map(i => i.id as string));
+  const idsRemovidos = [...idsAtuais].filter(id => !idsMantidos.has(id));
+
+  if (idsRemovidos.length > 0) {
+    const { error: delErr } = await supabase.from('itens_pedido').delete().in('id', idsRemovidos);
+    if (delErr) throw delErr;
+  }
+
+  const linhas = itens.map(i => ({
+    ...(i.id ? { id: i.id } : {}),
+    pedido_id: pedidoId, produto_id: i.produtoId ?? null, nome_produto: i.nomeProduto,
+    sku_produto: i.skuProduto, quantidade: i.quantidade,
+    preco_unitario: i.precoUnitario, subtotal: i.quantidade * i.precoUnitario,
+  }));
+  const { error: upsertErr } = await supabase.from('itens_pedido').upsert(linhas);
+  if (upsertErr) throw upsertErr;
+
+  const subtotal = linhas.reduce((s, l) => s + l.subtotal, 0);
+  const total = Math.max(0, subtotal - desconto + frete);
+  const { error: pedErr } = await supabase.from('pedidos')
+    .update({ subtotal, frete, desconto, total }).eq('id', pedidoId);
+  if (pedErr) throw pedErr;
+
+  const pedido = await getPedido(pedidoId);
+  if (!pedido) throw new Error('Pedido não encontrado após atualização.');
+  return pedido;
 }

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, Package, Truck, Check, X, Plus, Trash2, Search, Tag, ExternalLink, AlertCircle, RefreshCw, Link2 } from 'lucide-react';
+import { Eye, Package, Truck, Check, X, Plus, Trash2, Search, Tag, ExternalLink, AlertCircle, RefreshCw, Link2, Pencil } from 'lucide-react';
 import {
   Card, Badge, SearchBar, FilterBar, Select, Pagination,
   Modal, Button, SectionHeader, Input,
 } from '../../components/ui';
-import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, buscarClientePorEmail, gerarEtiqueta, cancelarEtiqueta, limparEtiquetaLocal } from '../../services/pedidos.service';
+import { getPedidos, createPedido, updatePedidoStatus, updatePedidoRastreio, updatePedidoItens, buscarClientePorEmail, gerarEtiqueta, cancelarEtiqueta, limparEtiquetaLocal } from '../../services/pedidos.service';
 import { getAssinatura } from '../../services/assinaturas.service';
 import type { Pedido, Endereco, Assinatura } from '../../types';
 
@@ -15,18 +15,26 @@ const statusOptions = [
   { value: 'em_separacao', label: 'Em separação' },
   { value: 'enviado', label: 'Enviado' },
   { value: 'entregue', label: 'Entregue' },
+  { value: 'disponivel_retirada', label: 'Disponível para retirada' },
+  { value: 'retirado', label: 'Retirado' },
   { value: 'cancelado', label: 'Cancelado' },
+  { value: 'reembolsado', label: 'Reembolsado' },
 ];
 
 const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
   pendente: 'pending', pago: 'pending', em_separacao: 'gold',
-  enviado: 'gold', entregue: 'active', cancelado: 'cancelled', reembolsado: 'inactive',
+  enviado: 'gold', entregue: 'active',
+  disponivel_retirada: 'gold', retirado: 'active',
+  cancelado: 'cancelled', reembolsado: 'inactive',
 };
 
 type ItemForm = { id: string; nome: string; sku: string; quantidade: string; precoUnitario: string };
 type EnderecoForm = { cep: string; logradouro: string; numero: string; complemento: string; bairro: string; cidade: string; estado: string };
+// itemId: id real em itens_pedido (undefined = item novo, ainda não salvo)
+type EditItemForm = { key: string; itemId?: string; nome: string; sku: string; quantidade: string; precoUnitario: string };
 
 const emptyItem = (): ItemForm => ({ id: crypto.randomUUID(), nome: '', sku: '', quantidade: '1', precoUnitario: '' });
+const emptyEditItem = (): EditItemForm => ({ key: crypto.randomUUID(), nome: '', sku: '', quantidade: '1', precoUnitario: '' });
 const emptyEndereco = (): EnderecoForm => ({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '' });
 
 export function AdminPedidos() {
@@ -44,6 +52,13 @@ export function AdminPedidos() {
   const [limpandoEtiqueta, setLimpandoEtiqueta] = useState(false);
   const [erroEtiqueta, setErroEtiqueta] = useState('');
   const perPage = 10;
+
+  // ── Editar itens do pedido ────────────────────────────────────────────────
+  const [editandoItens, setEditandoItens] = useState(false);
+  const [itensEdit, setItensEdit]         = useState<EditItemForm[]>([]);
+  const [freteEdit, setFreteEdit]         = useState('0');
+  const [descontoEdit, setDescontoEdit]   = useState('0');
+  const [salvandoItens, setSalvandoItens] = useState(false);
 
   // ── Novo pedido ─────────────────────────────────────────────────────────────
   const [criandoPedido, setCriandoPedido] = useState(false);
@@ -69,6 +84,7 @@ export function AdminPedidos() {
     setRastreio(p.codigoRastreio ?? '');
     setErroEtiqueta('');
     setAssDetalhe(null);
+    setEditandoItens(false);
     if (p.assinaturaId) {
       setCarregandoAss(true);
       try {
@@ -76,6 +92,52 @@ export function AdminPedidos() {
         setAssDetalhe(ass);
       } catch { /* silencia */ }
       finally { setCarregandoAss(false); }
+    }
+  }
+
+  function abrirEditarItens() {
+    if (!selected) return;
+    setItensEdit(selected.itens.map(i => ({
+      key: crypto.randomUUID(), itemId: i.id,
+      nome: i.produto.nome, sku: i.produto.sku,
+      quantidade: String(i.quantidade), precoUnitario: String(i.precoUnitario),
+    })));
+    setFreteEdit(String(selected.frete));
+    setDescontoEdit(String(selected.desconto));
+    setEditandoItens(true);
+  }
+
+  function atualizarItemEdit(key: string, patch: Partial<EditItemForm>) {
+    setItensEdit(prev => prev.map(i => i.key === key ? { ...i, ...patch } : i));
+  }
+
+  async function handleSalvarItens() {
+    if (!selected) return;
+    if (itensEdit.length === 0 || itensEdit.some(i => !i.nome.trim() || !i.precoUnitario)) {
+      alert('Preencha o nome e o preço de todos os itens.');
+      return;
+    }
+    setSalvandoItens(true);
+    try {
+      const atualizado = await updatePedidoItens(
+        selected.id,
+        itensEdit.map(i => ({
+          id: i.itemId,
+          nomeProduto: i.nome,
+          skuProduto: i.sku || `MAN-${Date.now()}`,
+          quantidade: Math.max(1, parseInt(i.quantidade) || 1),
+          precoUnitario: parseFloat(i.precoUnitario) || 0,
+        })),
+        parseFloat(freteEdit) || 0,
+        parseFloat(descontoEdit) || 0,
+      );
+      setPedidos(prev => prev.map(p => p.id === atualizado.id ? atualizado : p));
+      setSelected(atualizado);
+      setEditandoItens(false);
+    } catch {
+      alert('Erro ao salvar itens do pedido.');
+    } finally {
+      setSalvandoItens(false);
     }
   }
 
@@ -303,7 +365,9 @@ export function AdminPedidos() {
                     <Badge variant={statusVariant[p.status] ?? 'inactive'}>{p.status}</Badge>
                   </td>
                   <td className="table-td">
-                    {p.etiquetaUrl ? (
+                    {p.formaEntrega === 'retirada' ? (
+                      <span className="text-xs text-earth-600 font-medium">Retirada na loja</span>
+                    ) : p.etiquetaUrl ? (
                       <a href={p.etiquetaUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="flex items-center gap-1 text-xs text-forest-600 hover:text-forest-700 font-medium">
                         <Tag size={12} /> Etiqueta
                       </a>
@@ -560,24 +624,88 @@ export function AdminPedidos() {
 
             {/* Itens */}
             <div>
-              <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-3">Itens do pedido</p>
-              <div className="space-y-2">
-                {selected.itens.map(item => (
-                  <div key={item.id} className="flex items-center justify-between py-2 border-b border-cream-100">
-                    <div className="flex items-center gap-3">
-                      <Package size={16} className="text-earth-400" />
-                      <div>
-                        <p className="text-sm text-charcoal-700">{item.produto.nome}</p>
-                        {item.produto.sku && <p className="text-xs text-charcoal-400">SKU: {item.produto.sku}</p>}
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider">Itens do pedido</p>
+                {!editandoItens && selected.status !== 'cancelado' && (
+                  <button onClick={abrirEditarItens} className="flex items-center gap-1.5 text-xs text-forest-600 hover:text-forest-700 font-medium">
+                    <Pencil size={12} /> Editar itens
+                  </button>
+                )}
+              </div>
+
+              {!editandoItens ? (
+                <div className="space-y-2">
+                  {selected.itens.map(item => (
+                    <div key={item.id} className="flex items-center justify-between py-2 border-b border-cream-100">
+                      <div className="flex items-center gap-3">
+                        <Package size={16} className="text-earth-400" />
+                        <div>
+                          <p className="text-sm text-charcoal-700">{item.produto.nome}</p>
+                          {item.produto.sku && <p className="text-xs text-charcoal-400">SKU: {item.produto.sku}</p>}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-charcoal-600">x{item.quantidade}</p>
+                        <p className="text-sm font-medium text-charcoal-700">R$ {item.subtotal.toFixed(2)}</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-charcoal-600">x{item.quantidade}</p>
-                      <p className="text-sm font-medium text-charcoal-700">R$ {item.subtotal.toFixed(2)}</p>
-                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3 bg-cream-50 rounded-sm p-3 border border-cream-200">
+                  <div className="space-y-2">
+                    {itensEdit.map(item => (
+                      <div key={item.key} className="flex gap-2 items-start">
+                        <div className="flex-1">
+                          <input
+                            value={item.nome}
+                            onChange={e => atualizarItemEdit(item.key, { nome: e.target.value })}
+                            placeholder="Nome do produto *"
+                            className="w-full px-2.5 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 placeholder-charcoal-300 focus:outline-none focus:ring-1 focus:ring-forest-400"
+                          />
+                        </div>
+                        <div className="w-20">
+                          <input
+                            type="number" min="1" value={item.quantidade}
+                            onChange={e => atualizarItemEdit(item.key, { quantidade: e.target.value })}
+                            placeholder="Qtd"
+                            className="w-full px-2.5 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+                          />
+                        </div>
+                        <div className="w-32">
+                          <input
+                            type="number" min="0" step="0.01" value={item.precoUnitario}
+                            onChange={e => atualizarItemEdit(item.key, { precoUnitario: e.target.value })}
+                            placeholder="Preço *"
+                            className="w-full px-2.5 py-1.5 text-sm border border-cream-200 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+                          />
+                        </div>
+                        <div className="w-24 text-right pt-1.5 text-sm text-charcoal-500">
+                          R$ {((parseFloat(item.quantidade) || 0) * (parseFloat(item.precoUnitario) || 0)).toFixed(2)}
+                        </div>
+                        <button onClick={() => setItensEdit(prev => prev.filter(i => i.key !== item.key))} className="p-1.5 text-charcoal-300 hover:text-red-500 transition-colors mt-0.5">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                  <button onClick={() => setItensEdit(prev => [...prev, emptyEditItem()])} className="flex items-center gap-1.5 text-sm text-forest-600 hover:text-forest-700 font-medium">
+                    <Plus size={13} /> Adicionar item
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <Input label="Frete (R$)" type="number" min="0" step="0.01" value={freteEdit} onChange={e => setFreteEdit(e.target.value)} />
+                    <Input label="Desconto (R$)" type="number" min="0" step="0.01" value={descontoEdit} onChange={e => setDescontoEdit(e.target.value)} />
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-1">
+                    <Button variant="ghost" size="sm" onClick={() => setEditandoItens(false)}>Cancelar</Button>
+                    <Button variant="primary" size="sm" loading={salvandoItens} onClick={handleSalvarItens}>
+                      Salvar itens
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Totals */}
@@ -616,8 +744,8 @@ export function AdminPedidos() {
               </div>
             )}
 
-            {/* Etiqueta MelhorEnvio */}
-            {selected.status !== 'cancelado' && selected.status !== 'reembolsado' && (
+            {/* Etiqueta MelhorEnvio — não se aplica a pedidos de retirada */}
+            {selected.formaEntrega !== 'retirada' && selected.status !== 'cancelado' && selected.status !== 'reembolsado' && (
               <div>
                 <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Etiqueta de envio</p>
 
@@ -696,8 +824,8 @@ export function AdminPedidos() {
               </div>
             )}
 
-            {/* Rastreio manual */}
-            {!selected.etiquetaUrl && selected.status !== 'cancelado' && selected.status !== 'entregue' && (
+            {/* Rastreio manual — não se aplica a pedidos de retirada */}
+            {selected.formaEntrega !== 'retirada' && !selected.etiquetaUrl && selected.status !== 'cancelado' && selected.status !== 'entregue' && (
               <div>
                 <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Código de rastreio manual</p>
                 <div className="flex gap-2">
@@ -724,12 +852,32 @@ export function AdminPedidos() {
                   <Check size={14} /> Em separação
                 </Button>
               )}
-              {selected.status === 'em_separacao' && (
+              {selected.status === 'em_separacao' && selected.formaEntrega === 'retirada' && (
+                <Button variant="primary" size="sm" onClick={async () => {
+                  await updatePedidoStatus(selected.id, 'disponivel_retirada');
+                  const u = { ...selected, status: 'disponivel_retirada' as Pedido['status'] };
+                  setPedidos(prev => prev.map(p => p.id === selected.id ? u : p));
+                  setSelected(u);
+                }} icon={<Tag size={14} />}>
+                  Marcar disponível para retirada
+                </Button>
+              )}
+              {selected.status === 'em_separacao' && selected.formaEntrega !== 'retirada' && (
                 <Button variant="primary" size="sm" onClick={handleSalvarRastreio} loading={salvandoRastreio} icon={<Truck size={14} />}>
                   Marcar como enviado
                 </Button>
               )}
-              {selected.status !== 'cancelado' && selected.status !== 'entregue' && selected.status !== 'reembolsado' && (
+              {selected.status === 'disponivel_retirada' && (
+                <Button variant="primary" size="sm" onClick={async () => {
+                  await updatePedidoStatus(selected.id, 'retirado');
+                  const u = { ...selected, status: 'retirado' as Pedido['status'] };
+                  setPedidos(prev => prev.map(p => p.id === selected.id ? u : p));
+                  setSelected(u);
+                }} icon={<Check size={14} />}>
+                  Marcar como retirado
+                </Button>
+              )}
+              {selected.status !== 'cancelado' && selected.status !== 'entregue' && selected.status !== 'retirado' && selected.status !== 'reembolsado' && (
                 <Button variant="danger" size="sm" onClick={handleCancelarPedido} icon={<X size={14} />}>
                   Cancelar pedido
                 </Button>

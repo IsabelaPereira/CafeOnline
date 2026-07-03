@@ -8,12 +8,29 @@ import type { Pedido } from '../../types';
 
 const statusLabel: Record<string, string> = {
   pendente: 'Pendente', pago: 'Pago', em_separacao: 'Em separação',
-  enviado: 'Enviado', entregue: 'Entregue', cancelado: 'Cancelado', reembolsado: 'Reembolsado',
+  enviado: 'Enviado', entregue: 'Entregue',
+  disponivel_retirada: 'Disponível para retirada', retirado: 'Retirado',
+  cancelado: 'Cancelado', reembolsado: 'Reembolsado',
 };
 const statusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
   pendente: 'pending', pago: 'pending', em_separacao: 'pending',
-  enviado: 'gold', entregue: 'active', cancelado: 'cancelled', reembolsado: 'inactive',
+  enviado: 'gold', entregue: 'active',
+  disponivel_retirada: 'gold', retirado: 'active',
+  cancelado: 'cancelled', reembolsado: 'inactive',
 };
+
+/** Mensagem de retirada varia por status — só instrui o cliente a ir buscar
+ *  quando o pedido REALMENTE está disponível na loja (não antes). */
+function mensagemRetirada(status: Pedido['status']): string {
+  switch (status) {
+    case 'retirado':
+      return 'Pedido retirado na loja Das Matas.';
+    case 'disponivel_retirada':
+      return 'Disponível para retirada — Loja Das Matas, R. Bernardo Monteiro, 150, Loja 1, Centro, Contagem/MG.';
+    default:
+      return 'Retirada na loja — seu pedido está sendo preparado. Avisaremos quando estiver disponível.';
+  }
+}
 
 export function ClientPedidos() {
   const { user } = useAuth();
@@ -84,7 +101,12 @@ export function ClientPedidos() {
                   ))}
                 </div>
 
-                {pedido.codigoRastreio && (
+                {pedido.formaEntrega === 'retirada' ? (
+                  <div className="flex items-center gap-2 mb-4 p-3 bg-earth-50 rounded-sm text-sm">
+                    <Package size={14} className="text-earth-500 shrink-0" />
+                    <span className="text-earth-700">{mensagemRetirada(pedido.status)}</span>
+                  </div>
+                ) : pedido.codigoRastreio && (
                   <div className="flex items-center gap-2 mb-4 p-3 bg-blue-50 rounded-sm text-sm">
                     <Truck size={14} className="text-blue-500 shrink-0" />
                     <span className="text-blue-600">Rastreio: {pedido.codigoRastreio}</span>
@@ -162,17 +184,26 @@ export function ClientPedidos() {
               </div>
             </div>
 
-            {/* Endereço */}
+            {/* Entrega */}
             <div>
               <p className="text-xs font-medium text-charcoal-400 uppercase tracking-wider mb-2">Entrega</p>
-              <p className="text-sm text-charcoal-600">
-                {selected.enderecoEntrega.logradouro}, {selected.enderecoEntrega.numero}
-                {selected.enderecoEntrega.complemento && `, ${selected.enderecoEntrega.complemento}`}
-              </p>
-              <p className="text-sm text-charcoal-600">
-                {selected.enderecoEntrega.bairro} — {selected.enderecoEntrega.cidade}/{selected.enderecoEntrega.estado}
-              </p>
-              <p className="text-sm text-charcoal-600">CEP: {selected.enderecoEntrega.cep}</p>
+              {selected.formaEntrega === 'retirada' ? (
+                <div className="flex items-center gap-2 p-3 bg-earth-50 rounded-sm text-sm text-earth-700">
+                  <Package size={16} className="shrink-0" />
+                  <span>{mensagemRetirada(selected.status)}</span>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-charcoal-600">
+                    {selected.enderecoEntrega.logradouro}, {selected.enderecoEntrega.numero}
+                    {selected.enderecoEntrega.complemento && `, ${selected.enderecoEntrega.complemento}`}
+                  </p>
+                  <p className="text-sm text-charcoal-600">
+                    {selected.enderecoEntrega.bairro} — {selected.enderecoEntrega.cidade}/{selected.enderecoEntrega.estado}
+                  </p>
+                  <p className="text-sm text-charcoal-600">CEP: {selected.enderecoEntrega.cep}</p>
+                </>
+              )}
             </div>
           </div>
         )}

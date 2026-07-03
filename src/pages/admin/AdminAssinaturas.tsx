@@ -1132,6 +1132,7 @@ export function AdminAssinaturas() {
                 { label: 'Total Mensal', value: `R$ ${selected.totalMensal.toFixed(2)}` },
                 { label: 'Próx. Cobrança', value: new Date(selected.proximaCobranca).toLocaleDateString('pt-BR') },
                 { label: 'Preferência', value: `${selected.preferenciaCafe === 'grao' ? 'Grão' : `Moído (${selected.tipoMoagem ?? ''})`}` },
+                { label: 'Forma de entrega', value: selected.formaEntrega === 'retirada' ? 'Retirada na loja' : 'Entrega' },
                 {
                   label: 'ID Stripe',
                   value: selected.stripeSubscriptionId
@@ -1159,7 +1160,8 @@ export function AdminAssinaturas() {
                     };
                     const pedidoStatusVariant: Record<string, 'active' | 'pending' | 'cancelled' | 'inactive' | 'gold'> = {
                       pago: 'pending', em_separacao: 'gold', enviado: 'gold',
-                      entregue: 'active', cancelado: 'cancelled', reembolsado: 'inactive',
+                      entregue: 'active', disponivel_retirada: 'gold', retirado: 'active',
+                      cancelado: 'cancelled', reembolsado: 'inactive',
                     };
                     return (
                       <div key={ciclo.id} className="flex flex-wrap items-start gap-3 py-2.5 border-b border-cream-100 last:border-0">

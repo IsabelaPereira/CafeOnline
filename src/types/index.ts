@@ -146,6 +146,7 @@ export interface Assinatura {
   enderecoId: string;
   endereco: Endereco;
   frete: number;
+  formaEntrega: 'entrega' | 'retirada';
   totalMensal: number;
   proximaCobranca: string;
   proximoEnvio: string;
@@ -264,6 +265,8 @@ export type StatusPedido =
   | 'em_separacao'
   | 'enviado'
   | 'entregue'
+  | 'disponivel_retirada'
+  | 'retirado'
   | 'cancelado'
   | 'reembolsado';
 
@@ -278,6 +281,7 @@ export interface Pedido {
   desconto: number;
   total: number;
   status: StatusPedido;
+  formaEntrega: 'entrega' | 'retirada';
   enderecoEntrega: Endereco;
   formaPagamento: string;
   cupom?: string;
