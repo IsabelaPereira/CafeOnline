@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   Calendar, Check, X, Clock, Users, Plus, ChevronLeft, ChevronRight,
   Pencil, Trash2, Copy, Loader2, AlertTriangle, Table2, LayoutGrid, List,
-  UserCheck, UserX,
+  UserCheck, UserX, Ban, RotateCcw, History, MapPin,
 } from 'lucide-react';
 import {
   Card, Badge, Button, Modal, Input, Select, Textarea,
-  SectionHeader, Tabs, StatCard,
+  SectionHeader, Tabs, StatCard, FilterBar, SearchBar,
 } from '../../components/ui';
 import {
   getReservas, getMesas, createMesa, updateMesa, deleteMesa,
   getDiasFechados, createDiaFechado, updateDiaFechado, deleteDiaFechado,
   updateReservaStatus, updateReservaMesas, createReserva,
-  mesasDisponiveis, sugerirAlocacao,
+  mesasDisponiveis, sugerirAlocacao, getReservaHistorico,
 } from '../../services/reservas.service';
 import { getConfiguracoes, saveConfiguracoes } from '../../services/configuracoes.service';
+import { isEmailValido, isTelefoneValido, formatTelefone } from '../../utils/validation';
 import type { Reserva, Mesa, DiaFechado, Configuracoes, HorarioFuncionamento } from '../../types';
+import type { ReservaAuditLog } from '../../services/reservas.service';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +45,54 @@ function dataStr(d: Date): string {
 function parseDate(s: string): Date {
   return new Date(s + 'T12:00:00');
 }
+function formatDateHora(iso: string): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(iso));
+}
+
+// ── Histórico da reserva ────────────────────────────────────────────────────
+
+const FIELD_LABEL: Record<string, string> = {
+  nome: 'Nome', email: 'E-mail', telefone: 'Telefone', data: 'Data', horario: 'Horário',
+  pessoas: 'Pessoas', duracao_mins: 'Duração (min)', observacoes: 'Observações do cliente',
+  observacoes_internas: 'Observações internas', mesa_id: 'Mesa principal',
+  mesas_alocadas: 'Mesas alocadas', status: 'Status', cliente_id: 'Cliente vinculado', lead_id: 'Lead vinculado',
+};
+
+type HistoricoTipo = 'criacao' | 'aprovacao' | 'recusa' | 'cancelamento' | 'no_show' | 'presenca' | 'alocacao' | 'edicao' | 'exclusao' | 'reaberta';
+
+interface HistoricoStep {
+  id: string;
+  tipo: HistoricoTipo;
+  titulo: string;
+  detalhe?: string;
+  usuario: string;
+  origem: string;
+  criadoEm: string;
+}
+
+const TIPO_CONFIG: Record<HistoricoTipo, { icon: ReactNode; color: string }> = {
+  criacao:      { icon: <Plus size={13} />,      color: 'bg-forest-100 text-forest-600 border-forest-200' },
+  aprovacao:    { icon: <Check size={13} />,     color: 'bg-forest-100 text-forest-600 border-forest-200' },
+  recusa:       { icon: <X size={13} />,         color: 'bg-red-100 text-red-500 border-red-200' },
+  cancelamento: { icon: <Ban size={13} />,       color: 'bg-charcoal-100 text-charcoal-500 border-charcoal-200' },
+  no_show:      { icon: <UserX size={13} />,     color: 'bg-red-100 text-red-500 border-red-200' },
+  presenca:     { icon: <UserCheck size={13} />, color: 'bg-blue-100 text-blue-600 border-blue-200' },
+  alocacao:     { icon: <Table2 size={13} />,    color: 'bg-earth-100 text-earth-600 border-earth-200' },
+  edicao:       { icon: <Pencil size={13} />,    color: 'bg-gold-100 text-gold-700 border-gold-200' },
+  exclusao:     { icon: <Trash2 size={13} />,    color: 'bg-red-100 text-red-500 border-red-200' },
+  reaberta:     { icon: <RotateCcw size={13} />, color: 'bg-gold-100 text-gold-700 border-gold-200' },
+};
+
+const STATUS_TIPO: Record<string, { tipo: HistoricoTipo; titulo: string }> = {
+  confirmada: { tipo: 'aprovacao',    titulo: 'Reserva aprovada' },
+  recusada:   { tipo: 'recusa',       titulo: 'Reserva recusada' },
+  cancelada:  { tipo: 'cancelamento', titulo: 'Reserva cancelada' },
+  no_show:    { tipo: 'no_show',      titulo: 'Marcada como no-show' },
+  concluida:  { tipo: 'presenca',     titulo: 'Presença confirmada' },
+  solicitada: { tipo: 'reaberta',     titulo: 'Reserva reaberta (pendente novamente)' },
+};
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
@@ -67,7 +118,7 @@ export function AdminReservas() {
     setSelecionadas(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
   function toggleTodas() {
-    setSelecionadas(prev => prev.size === reservas.length ? new Set() : new Set(reservas.map(r => r.id)));
+    setSelecionadas(prev => prev.size === reservasFiltradas.length ? new Set() : new Set(reservasFiltradas.map(r => r.id)));
   }
   async function handleAutoAlocarLote() {
     setProcessandoLote(true);
@@ -108,6 +159,101 @@ export function AdminReservas() {
     finally { setProcessandoLote(false); }
   }
 
+  // ── Filtros da lista de reservas ─────────────────────────────────────────
+  const [filtroBusca, setFiltroBusca]         = useState('');
+  const [filtroStatus, setFiltroStatus]       = useState('');
+  const [filtroDataInicio, setFiltroDataInicio] = useState(() => dataStr(new Date()));
+  const [filtroDataFim, setFiltroDataFim]     = useState('');
+
+  function limparFiltros() {
+    setFiltroBusca('');
+    setFiltroStatus('');
+    setFiltroDataInicio(dataStr(new Date()));
+    setFiltroDataFim('');
+  }
+
+  // ── Histórico da reserva (dentro do modal de detalhes) ────────────────────
+  const [modalTab, setModalTab]                 = useState<'detalhes' | 'historico'>('detalhes');
+  const [historicoLogs, setHistoricoLogs]       = useState<ReservaAuditLog[]>([]);
+  const [historicoLoading, setHistoricoLoading] = useState(false);
+
+  function mesaLabel(id: string): string {
+    const m = mesas.find(x => x.id === id);
+    return m ? (m.nome ?? `Mesa ${m.numero}`) : id;
+  }
+
+  function formatFieldValue(field: string, value: unknown): string {
+    if (value === null || value === undefined || value === '') return '—';
+    if (field === 'status') return STATUS_LABEL[value as string] ?? String(value);
+    if (field === 'mesas_alocadas') {
+      const arr = value as string[];
+      return arr.length ? arr.map(mesaLabel).join(', ') : '—';
+    }
+    if (field === 'mesa_id') return mesaLabel(value as string);
+    if (field === 'data') return parseDate(value as string).toLocaleDateString('pt-BR');
+    if (typeof value === 'boolean') return value ? 'sim' : 'não';
+    return String(value);
+  }
+
+  async function carregarHistorico(reservaId: string) {
+    setHistoricoLoading(true);
+    try {
+      setHistoricoLogs(await getReservaHistorico(reservaId));
+    } catch { setHistoricoLogs([]); }
+    finally { setHistoricoLoading(false); }
+  }
+
+  function buildHistoricoSteps(logs: ReservaAuditLog[]): HistoricoStep[] {
+    return logs.map(log => {
+      const usuario = log.usuarioNome ?? (log.operacao === 'INSERT' ? 'Cliente' : 'Sistema');
+      const origem  = log.usuarioId
+        ? 'Painel administrativo'
+        : (log.operacao === 'INSERT' ? 'Site (reserva do cliente)' : 'Sistema/automação');
+      const base = { id: log.id, usuario, origem, criadoEm: log.criadoEm };
+
+      if (log.operacao === 'INSERT') {
+        const d = log.dadosDepois ?? {};
+        const detalhe = d.data
+          ? `${formatFieldValue('data', d.data)} às ${d.horario ?? ''} · ${d.pessoas ?? '?'} pessoa(s)`
+          : undefined;
+        return { ...base, tipo: 'criacao', titulo: 'Reserva criada', detalhe };
+      }
+      if (log.operacao === 'DELETE') {
+        return { ...base, tipo: 'exclusao', titulo: 'Reserva excluída' };
+      }
+
+      // UPDATE
+      const antes  = log.dadosAntes ?? {};
+      const depois = log.dadosDepois ?? {};
+      const campos = Object.keys(depois);
+
+      if ('status' in depois) {
+        const novo = depois.status as string;
+        const info = STATUS_TIPO[novo] ?? { tipo: 'edicao' as HistoricoTipo, titulo: `Status alterado para ${STATUS_LABEL[novo] ?? novo}` };
+        const partes: string[] = [];
+        if (antes.status) partes.push(`De "${STATUS_LABEL[antes.status as string] ?? antes.status}" para "${STATUS_LABEL[novo] ?? novo}"`);
+        if (campos.includes('mesas_alocadas')) partes.push(`Mesas: ${formatFieldValue('mesas_alocadas', depois.mesas_alocadas)}`);
+        const outrosCampos = campos.filter(k => k !== 'status' && k !== 'mesas_alocadas' && k !== 'mesa_id');
+        partes.push(...outrosCampos.map(k => `${FIELD_LABEL[k] ?? k}: ${formatFieldValue(k, antes[k])} → ${formatFieldValue(k, depois[k])}`));
+        return { ...base, tipo: info.tipo, titulo: info.titulo, detalhe: partes.join(' · ') || undefined };
+      }
+
+      if (campos.every(k => k === 'mesas_alocadas' || k === 'mesa_id')) {
+        return {
+          ...base, tipo: 'alocacao', titulo: 'Mesas alocadas/atualizadas',
+          detalhe: campos.map(k => formatFieldValue(k, depois[k])).join(', '),
+        };
+      }
+
+      const detalhe = campos
+        .map(k => `${FIELD_LABEL[k] ?? k}: ${formatFieldValue(k, antes[k])} → ${formatFieldValue(k, depois[k])}`)
+        .join(' · ');
+      return { ...base, tipo: 'edicao', titulo: 'Reserva editada', detalhe: detalhe || undefined };
+    });
+  }
+
+  const historicoSteps = buildHistoricoSteps(historicoLogs);
+
   // ── Nova reserva ──────────────────────────────────────────────────────────
   const [novaModal, setNovaModal] = useState(false);
   const [formNova, setFormNova] = useState({
@@ -115,6 +261,20 @@ export function AdminReservas() {
     duracaoMins: '90', observacoes: '',
   });
   const [salvandoNova, setSalvandoNova] = useState(false);
+  const [errosNova, setErrosNova]   = useState<Record<string, string>>({});
+
+  function validarNova(): boolean {
+    const errs: Record<string, string> = {};
+    if (!formNova.nome.trim()) errs.nome = 'Nome é obrigatório.';
+    if (!formNova.email.trim()) errs.email = 'E-mail é obrigatório.';
+    else if (!isEmailValido(formNova.email)) errs.email = 'E-mail inválido.';
+    if (!formNova.telefone.trim()) errs.telefone = 'Telefone é obrigatório.';
+    else if (!isTelefoneValido(formNova.telefone)) errs.telefone = 'Telefone inválido. Use o formato (11) 99999-9999.';
+    if (!formNova.data) errs.data = 'Data é obrigatória.';
+    if (!formNova.horario) errs.horario = 'Horário é obrigatório.';
+    setErrosNova(errs);
+    return Object.keys(errs).length === 0;
+  }
 
   // ── Mesas ─────────────────────────────────────────────────────────────────
   const [mesaModal, setMesaModal]   = useState(false);
@@ -182,6 +342,9 @@ export function AdminReservas() {
     setSelected(r);
     setObsInterna(r.observacoesInternas ?? '');
     setMesasSel(r.mesasAlocadas?.length ? r.mesasAlocadas : r.mesaId ? [r.mesaId] : []);
+    setModalTab('detalhes');
+    setHistoricoLogs([]);
+    carregarHistorico(r.id);
   }
 
   // ── Auto-alocação ─────────────────────────────────────────────────────────
@@ -238,6 +401,7 @@ export function AdminReservas() {
 
   // ── Nova reserva ──────────────────────────────────────────────────────────
   async function handleCriarReserva() {
+    if (!validarNova()) return;
     setSalvandoNova(true);
     try {
       await createReserva({
@@ -252,6 +416,7 @@ export function AdminReservas() {
       setReservas(atualizadas);
       setNovaModal(false);
       setFormNova({ nome: '', email: '', telefone: '', data: '', horario: '', pessoas: '2', duracaoMins: '90', observacoes: '' });
+      setErrosNova({});
     } catch { alert('Erro ao criar reserva.'); }
     finally { setSalvandoNova(false); }
   }
@@ -421,6 +586,21 @@ export function AdminReservas() {
   const confirmadas = reservas.filter(r => r.status === 'confirmada').length;
   const pendentes   = reservas.filter(r => r.status === 'solicitada').length;
 
+  // ── Lista filtrada/ordenada (mais próximas primeiro) ─────────────────────
+  const reservasFiltradas = reservas
+    .filter(r => {
+      if (filtroBusca) {
+        const q = filtroBusca.toLowerCase();
+        const alvo = `${r.nome} ${r.telefone ?? ''} ${r.email ?? ''}`.toLowerCase();
+        if (!alvo.includes(q)) return false;
+      }
+      if (filtroStatus && r.status !== filtroStatus) return false;
+      if (filtroDataInicio && r.data < filtroDataInicio) return false;
+      if (filtroDataFim && r.data > filtroDataFim) return false;
+      return true;
+    })
+    .sort((a, b) => (a.data + a.horario).localeCompare(b.data + b.horario));
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -486,6 +666,38 @@ export function AdminReservas() {
           )}
 
           <Card padding={false}>
+            <FilterBar>
+              <SearchBar
+                value={filtroBusca}
+                onChange={setFiltroBusca}
+                placeholder="Buscar por nome, telefone ou e-mail..."
+                className="min-w-[220px] flex-1"
+              />
+              <Select
+                value={filtroStatus}
+                onChange={e => setFiltroStatus(e.target.value)}
+                options={Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label }))}
+                placeholder="Todos os status"
+                className="!py-2 !px-3 w-auto min-w-[160px]"
+              />
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-charcoal-400">De</label>
+                <input
+                  type="date" value={filtroDataInicio}
+                  onChange={e => setFiltroDataInicio(e.target.value)}
+                  className="px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+                />
+                <label className="text-xs text-charcoal-400">Até</label>
+                <input
+                  type="date" value={filtroDataFim}
+                  onChange={e => setFiltroDataFim(e.target.value)}
+                  className="px-3 py-2 text-sm border border-cream-300 rounded-sm bg-white text-charcoal-700 focus:outline-none focus:ring-1 focus:ring-forest-400"
+                />
+              </div>
+              <button onClick={limparFiltros} className="text-xs text-charcoal-400 hover:text-charcoal-700 underline underline-offset-2">
+                Limpar filtros
+              </button>
+            </FilterBar>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -493,7 +705,7 @@ export function AdminReservas() {
                     <th className="table-th w-10">
                       <input
                         type="checkbox"
-                        checked={selecionadas.size === reservas.length && reservas.length > 0}
+                        checked={selecionadas.size === reservasFiltradas.length && reservasFiltradas.length > 0}
                         onChange={toggleTodas}
                         className="accent-forest-500 w-4 h-4 cursor-pointer"
                       />
@@ -508,9 +720,11 @@ export function AdminReservas() {
                   </tr>
                 </thead>
                 <tbody>
-                  {reservas.length === 0 ? (
-                    <tr><td colSpan={8} className="table-td text-center text-charcoal-400 py-10">Nenhuma reserva.</td></tr>
-                  ) : reservas.map(r => {
+                  {reservasFiltradas.length === 0 ? (
+                    <tr><td colSpan={8} className="table-td text-center text-charcoal-400 py-10">
+                      {reservas.length === 0 ? 'Nenhuma reserva.' : 'Nenhuma reserva encontrada com os filtros aplicados.'}
+                    </td></tr>
+                  ) : reservasFiltradas.map(r => {
                     const mesasNomes = r.mesasAlocadas.map(id => mesas.find(m => m.id === id)).filter(Boolean).map(m => m!.nome ?? `Mesa ${m!.numero}`);
                     const sel = selecionadas.has(r.id);
                     return (
@@ -882,6 +1096,67 @@ export function AdminReservas() {
           const disponiveis = mesasDisponiveis(mesas, reservas, selected.data, selected.horario, selected.duracaoMins, selected.id);
           return (
             <div className="space-y-5">
+              {/* Abas internas: Detalhes / Histórico */}
+              <div className="flex gap-1 border-b border-cream-200 -mt-1">
+                <button
+                  onClick={() => setModalTab('detalhes')}
+                  className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+                    modalTab === 'detalhes' ? 'text-forest-600 border-forest-500' : 'text-charcoal-400 border-transparent hover:text-charcoal-600'
+                  }`}
+                >
+                  Detalhes
+                </button>
+                <button
+                  onClick={() => setModalTab('historico')}
+                  className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
+                    modalTab === 'historico' ? 'text-forest-600 border-forest-500' : 'text-charcoal-400 border-transparent hover:text-charcoal-600'
+                  }`}
+                >
+                  <History size={12} /> Histórico
+                  {historicoLogs.length > 0 && (
+                    <span className="text-[10px] bg-cream-200 text-charcoal-500 rounded-full px-1.5 leading-4">{historicoLogs.length}</span>
+                  )}
+                </button>
+              </div>
+
+              {modalTab === 'historico' ? (
+                historicoLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 size={22} className="animate-spin text-forest-500" />
+                  </div>
+                ) : historicoSteps.length === 0 ? (
+                  <p className="text-sm text-charcoal-400 py-6 text-center">Nenhum evento de histórico registrado para esta reserva.</p>
+                ) : (
+                  <div className="space-y-0 max-h-[420px] overflow-y-auto pr-1">
+                    {historicoSteps.map((step, i) => {
+                      const cfg = TIPO_CONFIG[step.tipo];
+                      return (
+                        <div key={step.id} className="relative pl-9 pb-6 last:pb-0">
+                          {i < historicoSteps.length - 1 && (
+                            <span className="absolute left-[13px] top-6 bottom-0 w-px bg-cream-200" />
+                          )}
+                          <span className={`absolute left-0 top-0 flex items-center justify-center w-7 h-7 rounded-full border ${cfg.color}`}>
+                            {cfg.icon}
+                          </span>
+                          <p className="text-sm font-medium text-charcoal-700">{step.titulo}</p>
+                          <p className="text-xs text-charcoal-400 mt-0.5">
+                            {formatDateHora(step.criadoEm)} · {step.usuario}
+                            <span className="inline-flex items-center gap-1 ml-1.5">
+                              <MapPin size={10} className="inline" /> {step.origem}
+                            </span>
+                          </p>
+                          {step.detalhe && (
+                            <p className="text-xs text-charcoal-500 mt-1.5 bg-cream-50 border border-cream-200 rounded-sm px-2.5 py-1.5">
+                              {step.detalhe}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+              <>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
                   { label: 'Nome',     value: selected.nome },
@@ -996,21 +1271,23 @@ export function AdminReservas() {
                   </>
                 )}
               </div>
+              </>
+              )}
             </div>
           );
         })()}
       </Modal>
 
       {/* ── MODAL: Nova reserva ────────────────────────────────────────────── */}
-      <Modal open={novaModal} onClose={() => setNovaModal(false)} title="Nova Reserva" size="md">
+      <Modal open={novaModal} onClose={() => { setNovaModal(false); setErrosNova({}); }} title="Nova Reserva" size="md">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Nome *" value={formNova.nome} onChange={e => setFormNova(p => ({ ...p, nome: e.target.value }))} placeholder="Nome completo" />
-            <Input label="E-mail" value={formNova.email} onChange={e => setFormNova(p => ({ ...p, email: e.target.value }))} placeholder="email@exemplo.com" />
-            <Input label="Telefone" value={formNova.telefone} onChange={e => setFormNova(p => ({ ...p, telefone: e.target.value }))} placeholder="(11) 99999-9999" />
+            <Input label="Nome *" value={formNova.nome} onChange={e => setFormNova(p => ({ ...p, nome: e.target.value }))} error={errosNova.nome} placeholder="Nome completo" />
+            <Input label="E-mail *" type="email" value={formNova.email} onChange={e => setFormNova(p => ({ ...p, email: e.target.value }))} error={errosNova.email} placeholder="email@exemplo.com" />
+            <Input label="Telefone *" value={formNova.telefone} onChange={e => setFormNova(p => ({ ...p, telefone: formatTelefone(e.target.value) }))} error={errosNova.telefone} placeholder="(11) 99999-9999" maxLength={15} />
             <Input label="Pessoas" type="number" min="1" value={formNova.pessoas} onChange={e => setFormNova(p => ({ ...p, pessoas: e.target.value }))} />
-            <Input label="Data *" type="date" value={formNova.data} onChange={e => setFormNova(p => ({ ...p, data: e.target.value }))} />
-            <Input label="Horário *" type="time" value={formNova.horario} onChange={e => setFormNova(p => ({ ...p, horario: e.target.value }))} />
+            <Input label="Data *" type="date" value={formNova.data} onChange={e => setFormNova(p => ({ ...p, data: e.target.value }))} error={errosNova.data} />
+            <Input label="Horário *" type="time" value={formNova.horario} onChange={e => setFormNova(p => ({ ...p, horario: e.target.value }))} error={errosNova.horario} />
             <Input label="Duração (minutos)" type="number" min="15" value={formNova.duracaoMins} onChange={e => setFormNova(p => ({ ...p, duracaoMins: e.target.value }))} />
           </div>
           <Textarea label="Observações" value={formNova.observacoes} onChange={e => setFormNova(p => ({ ...p, observacoes: e.target.value }))} placeholder="Pedidos especiais, alergias..." rows={2} />
