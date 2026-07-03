@@ -2,7 +2,7 @@
 // Deploy: supabase functions deploy manage-subscription
 // Secrets: STRIPE_SECRET_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SITE_URL
 //
-// Actions: pause | resume | cancel_at_period_end | cancel_now | reactivate | retry_invoice | billing_portal
+// Actions: pause | resume | cancel_at_period_end | cancel_now | reactivate | retry_invoice | billing_portal | update_frete
 
 import Stripe from 'npm:stripe@14';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     const stripe   = new Stripe(stripeKey, { apiVersion: '2023-10-16' });
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { assinatura_id, action, motivo } = await req.json();
+    const { assinatura_id, action, motivo, nova_forma_entrega, novo_frete } = await req.json();
 
     if (!assinatura_id || !action) {
       return json({ error: 'assinatura_id e action são obrigatórios.' }, 400);
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
     // ── Buscar assinatura ─────────────────────────────────────────────────────
     const { data: ass, error: assErr } = await supabase
       .from('assinaturas')
-      .select('id, status, stripe_subscription_id, cliente_id')
+      .select('id, status, stripe_subscription_id, cliente_id, plano_id')
       .eq('id', assinatura_id)
       .single();
 
@@ -72,9 +72,10 @@ Deno.serve(async (req) => {
       return json({ url: portal.url });
     }
 
-    // ── Validar stripe_subscription_id para as demais ações ──────────────────
+    // ── Validar stripe_subscription_id — update_frete tolera assinatura ainda
+    //    sem Subscription ativa (ex.: pendente), demais ações exigem ────────────
     const stripeSubId = ass.stripe_subscription_id as string | null;
-    if (!stripeSubId) {
+    if (!stripeSubId && action !== 'update_frete') {
       return json({ error: 'Assinatura sem Stripe Subscription ID.' }, 400);
     }
 
@@ -169,6 +170,55 @@ Deno.serve(async (req) => {
         }
         console.log(`[manage-subscription] Retry invoice ${invoice.id} → status=${paid.status}`);
         return json({ success: true, invoiceStatus: paid.status });
+      }
+
+      // ── Alterar forma de entrega (retirada/entrega) e recalcular o valor ───
+      case 'update_frete': {
+        if (nova_forma_entrega !== 'entrega' && nova_forma_entrega !== 'retirada') {
+          return json({ error: 'nova_forma_entrega deve ser "entrega" ou "retirada".' }, 400);
+        }
+        const freteNum = Number(novo_frete);
+        if (!Number.isFinite(freteNum) || freteNum < 0) {
+          return json({ error: 'novo_frete inválido.' }, 400);
+        }
+
+        const { data: plano, error: planoErr } = await supabase
+          .from('planos').select('preco').eq('id', ass.plano_id).single();
+        if (planoErr || !plano) return json({ error: 'Plano da assinatura não encontrado.' }, 404);
+
+        const novoTotal = plano.preco + freteNum;
+
+        // Atualiza o preço da Subscription no Stripe, se já houver uma ativa.
+        // proration_behavior: 'none' — o novo valor vale a partir da próxima
+        // cobrança, sem gerar cobrança/estorno parcial no ciclo atual.
+        if (stripeSubId) {
+          const sub  = await stripe.subscriptions.retrieve(stripeSubId);
+          const item = sub.items.data[0];
+          if (!item) return json({ error: 'Item de cobrança não encontrado na assinatura Stripe.' }, 400);
+
+          await stripe.subscriptions.update(stripeSubId, {
+            items: [{
+              id: item.id,
+              price_data: {
+                currency:    'brl',
+                product:     item.price.product as string,
+                unit_amount: Math.round(novoTotal * 100),
+                recurring:   { interval: 'month' },
+              },
+            }],
+            proration_behavior: 'none',
+          });
+        }
+
+        const { error: updErr } = await supabase.from('assinaturas').update({
+          forma_entrega: nova_forma_entrega,
+          frete:         freteNum,
+          total_mensal:  novoTotal,
+        }).eq('id', assinatura_id);
+        if (updErr) return json({ error: updErr.message }, 500);
+
+        console.log(`[manage-subscription] Forma de entrega da assinatura ${assinatura_id} → ${nova_forma_entrega} (frete R$${freteNum})`);
+        return json({ success: true, totalMensal: novoTotal });
       }
 
       default:

@@ -240,6 +240,34 @@ export async function manageAssinatura(
   return res.json();
 }
 
+/** Altera a forma de entrega da assinatura (retirada/entrega) e o valor do
+ *  frete — atualiza tanto o banco quanto o preço da Subscription no Stripe
+ *  (quando já houver uma ativa), para a próxima cobrança já sair correta. */
+export async function alterarFormaEntregaAssinatura(
+  assinaturaId: string,
+  formaEntrega: 'entrega' | 'retirada',
+  frete: number,
+): Promise<{ success?: boolean; totalMensal?: number; error?: string }> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token ?? supabaseKey;
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/manage-subscription`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseKey,
+    },
+    body: JSON.stringify({
+      assinatura_id: assinaturaId, action: 'update_frete',
+      nova_forma_entrega: formaEntrega, novo_frete: frete,
+    }),
+  });
+  return res.json();
+}
+
 export async function createPlano(p: Pick<PlanoAssinatura, 'nome' | 'descricao' | 'preco' | 'beneficios' | 'destaque' | 'ativo' | 'ordem'>): Promise<PlanoAssinatura> {
   const { data, error } = await supabase.from('planos').insert(p).select().single();
   if (error) throw error;
